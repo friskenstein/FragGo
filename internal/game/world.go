@@ -276,7 +276,8 @@ func (g *Game) buildPlayerModel() {
 func (g *Game) syncPlayerModel() {
 
 	g.playerRoot.SetPosition(g.playerPos.X, g.playerPos.Y, g.playerPos.Z)
-	g.playerRoot.SetRotation(0, g.yaw, 0)
+	// The mesh is authored facing +Z, while camera forward at yaw 0 points toward -Z.
+	g.playerRoot.SetRotation(0, math32.Pi-g.yaw, 0)
 }
 
 func (g *Game) spawnTargets() {
