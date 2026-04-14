@@ -34,10 +34,8 @@ const (
 	stepUpHeight     = 0.7
 	stepDownHeight   = 0.85
 	groundSnapHeight = 0.35
-	spawnX           = 0.0
-	spawnY           = 0.0
-	spawnZ           = 34.0
 	collisionEpsilon = 0.01
+	groundProbeLift  = 1.4
 )
 
 type Game struct {
@@ -60,6 +58,10 @@ type Game struct {
 	yaw            float32
 	pitch          float32
 
+	playerSpawn     math32.Vector3
+	combatantSpawns []math32.Vector3
+	worldBounds     math32.Box3
+
 	mouseCaptured bool
 	cursorSeeded  bool
 	cursorX       float32
@@ -77,9 +79,8 @@ type Game struct {
 	statusTTL       time.Duration
 	menuCameraAngle float32
 
-	platforms  []platform
-	colliders  []boxCollider
-	combatants []*combatant
+	arenaCollision *meshCollision
+	combatants     []*combatant
 
 	infoLabel      *gui.Label
 	controlsLabel  *gui.Label
@@ -121,8 +122,6 @@ func New() (*Game, error) {
 		camera:   camera.NewPerspective(float32(windowWidth)/float32(windowHeight), 0.1, 300, 78, camera.Vertical),
 	}
 
-	g.playerPos.Set(spawnX, spawnY, spawnZ)
-	g.playerGrounded = true
 	g.yaw = 0
 	g.configureMenuDefaults()
 
@@ -134,6 +133,7 @@ func New() (*Game, error) {
 		g.shutdown()
 		return nil, err
 	}
+	g.resetPlayer()
 	g.buildHUD()
 	g.buildEffects()
 	g.releaseMouse()
@@ -286,8 +286,7 @@ func (g *Game) updatePlayer(dt float32) {
 	g.playerPos.Y += g.playerVelocity.Y * dt
 	g.movePlayerHorizontal(g.playerVelocity.X*dt, g.playerVelocity.Z*dt)
 
-	g.playerPos.X = math32.Clamp(g.playerPos.X, -worldLimit, worldLimit)
-	g.playerPos.Z = math32.Clamp(g.playerPos.Z, -worldLimit, worldLimit)
+	g.clampPlayerToWorldBounds()
 
 	landed, supportY := g.resolveGround(previousY)
 	g.playerGrounded = landed
@@ -301,7 +300,7 @@ func (g *Game) updatePlayer(dt float32) {
 	if g.playerPos.Y < -10 {
 		g.playerDeaths++
 		g.resetPlayer()
-		g.setStatus("Respawned at south spawn", 2*time.Second)
+		g.setStatus("Respawned at arena spawn", 2*time.Second)
 	}
 
 	g.syncPlayerModel()
@@ -309,14 +308,23 @@ func (g *Game) updatePlayer(dt float32) {
 
 func (g *Game) resolveGround(previousY float32) (bool, float32) {
 
+	if g.arenaCollision == nil {
+		return false, 0
+	}
+
 	bestSupport := float32(0)
 	landed := false
-	for _, platform := range g.platforms {
-		if !platform.contains(g.playerPos.X, g.playerPos.Z, playerRadius) {
+	for _, offset := range collisionFootprintOffsets(playerRadius * 0.55) {
+		top, ok := g.arenaCollision.supportAt(
+			g.playerPos.X+offset.X,
+			g.playerPos.Z+offset.Z,
+			math32.Max(previousY, g.playerPos.Y)+groundProbeLift,
+			g.playerPos.Y-stepDownHeight-groundSnapHeight-0.5,
+		)
+		if !ok {
 			continue
 		}
 
-		top := platform.top()
 		canLand := g.playerVelocity.Y <= 0 &&
 			previousY >= top-0.1 &&
 			g.playerPos.Y <= top+groundSnapHeight
@@ -360,66 +368,128 @@ func (g *Game) resolvePlayerAxis(base math32.Vector3, delta float32, moveX bool,
 		target.Z += delta
 	}
 
-	for idx := range g.colliders {
-		collider := g.colliders[idx]
-		if !g.colliderBlocksPlayerAt(collider, target) {
-			continue
-		}
-
-		min := collider.min()
-		max := collider.max()
+	if !g.positionBlocked(target, g.playerGrounded) {
 		if moveX {
-			if delta > 0 {
-				target.X = min.X - playerRadius - collisionEpsilon
-			} else {
-				target.X = max.X + playerRadius + collisionEpsilon
-			}
+			return target.X, velocity
+		}
+		return target.Z, velocity
+	}
+
+	low := float32(0)
+	high := float32(1)
+	for iteration := 0; iteration < 12; iteration++ {
+		mid := (low + high) * 0.5
+		probe := base
+		if moveX {
+			probe.X += delta * mid
 		} else {
-			if delta > 0 {
-				target.Z = min.Z - playerRadius - collisionEpsilon
-			} else {
-				target.Z = max.Z + playerRadius + collisionEpsilon
-			}
+			probe.Z += delta * mid
 		}
-		velocity = 0
+
+		if g.positionBlocked(probe, g.playerGrounded) {
+			high = mid
+		} else {
+			low = mid
+		}
 	}
 
+	final := base
 	if moveX {
-		return target.X, velocity
+		final.X += delta * low
+		return final.X, 0
 	}
-	return target.Z, velocity
-}
-
-func (g *Game) colliderBlocksPlayerAt(collider boxCollider, pos math32.Vector3) bool {
-
-	playerBottom := pos.Y
-	playerTop := pos.Y + playerHeight
-	if collider.top() <= playerBottom+0.05 || collider.bottom() >= playerTop-0.05 {
-		return false
-	}
-
-	if collider.walkable && g.playerGrounded {
-		top := collider.top()
-		if top >= playerBottom-groundSnapHeight && top <= playerBottom+stepUpHeight {
-			return false
-		}
-	}
-
-	min := collider.min()
-	max := collider.max()
-	return pos.X >= min.X-playerRadius &&
-		pos.X <= max.X+playerRadius &&
-		pos.Z >= min.Z-playerRadius &&
-		pos.Z <= max.Z+playerRadius
+	final.Z += delta * low
+	return final.Z, 0
 }
 
 func (g *Game) resetPlayer() {
 
-	g.playerPos.Set(spawnX, spawnY, spawnZ)
+	g.playerPos = g.playerSpawn
 	g.playerVelocity.Set(0, 0, 0)
 	g.playerGrounded = true
 	g.pitch = 0
 	g.yaw = 0
+	if g.playerRoot != nil {
+		g.syncPlayerModel()
+	}
+}
+
+func (g *Game) clampPlayerToWorldBounds() {
+
+	if !boxIsFinite(g.worldBounds) {
+		g.playerPos.X = math32.Clamp(g.playerPos.X, -worldLimit, worldLimit)
+		g.playerPos.Z = math32.Clamp(g.playerPos.Z, -worldLimit, worldLimit)
+		return
+	}
+
+	minX := g.worldBounds.Min.X + playerRadius
+	maxX := g.worldBounds.Max.X - playerRadius
+	minZ := g.worldBounds.Min.Z + playerRadius
+	maxZ := g.worldBounds.Max.Z - playerRadius
+
+	if minX <= maxX {
+		g.playerPos.X = math32.Clamp(g.playerPos.X, minX, maxX)
+	}
+	if minZ <= maxZ {
+		g.playerPos.Z = math32.Clamp(g.playerPos.Z, minZ, maxZ)
+	}
+}
+
+func (g *Game) positionBlocked(pos math32.Vector3, grounded bool) bool {
+
+	if g.arenaCollision == nil {
+		return false
+	}
+
+	supportY, hasSupport := g.highestSupportAt(pos.X, pos.Z)
+	canStep := grounded &&
+		hasSupport &&
+		supportY >= pos.Y-stepDownHeight &&
+		supportY <= pos.Y+stepUpHeight
+
+	for _, height := range collisionHeightOffsets() {
+		origin := math32.Vector3{X: pos.X, Y: pos.Y + height, Z: pos.Z}
+		for _, direction := range collisionCardinalDirections() {
+			hit, ok := g.arenaCollision.raycast(origin, direction, playerRadius+collisionEpsilon, func(tri *collisionTriangle) bool {
+				return !tri.walkable
+			})
+			if !ok {
+				continue
+			}
+			if canStep && hit.point.Y <= supportY+0.05 {
+				continue
+			}
+			return true
+		}
+	}
+
+	return false
+}
+
+func collisionFootprintOffsets(radius float32) []math32.Vector3 {
+
+	return []math32.Vector3{
+		{},
+		{X: radius},
+		{X: -radius},
+		{Z: radius},
+		{Z: -radius},
+	}
+}
+
+func collisionHeightOffsets() []float32 {
+
+	return []float32{0.15, playerHeight * 0.5, playerHeight - 0.15}
+}
+
+func collisionCardinalDirections() []math32.Vector3 {
+
+	return []math32.Vector3{
+		{X: 1},
+		{X: -1},
+		{Z: 1},
+		{Z: -1},
+	}
 }
 
 func (g *Game) updateCamera() {

@@ -2,15 +2,14 @@ package game
 
 import (
 	"fmt"
+	"math"
 	"path/filepath"
 	"runtime"
 
 	"github.com/g3n/engine/core"
-	"github.com/g3n/engine/geometry"
-	"github.com/g3n/engine/graphic"
 	"github.com/g3n/engine/light"
+	gltfloader "github.com/g3n/engine/loader/gltf"
 	objloader "github.com/g3n/engine/loader/obj"
-	"github.com/g3n/engine/material"
 	"github.com/g3n/engine/math32"
 )
 
@@ -18,50 +17,13 @@ const (
 	playerModelScale       = 2.1
 	playerModelGroundLift  = 1.055
 	playerModelCenterShift = 0.024
+
+	arenaModelScale            = 1.0
+	arenaSpawnSearchStep       = 8.0
+	arenaSpawnSearchLayers     = 6
+	arenaSpawnMinSpacing       = 18.0
+	arenaSpawnMinEdgeClearance = 6.0
 )
-
-type platform struct {
-	center math32.Vector3
-	size   math32.Vector3
-}
-
-func (p platform) top() float32 {
-
-	return p.center.Y + p.size.Y*0.5
-}
-
-func (p platform) contains(x, z, radius float32) bool {
-
-	halfX := p.size.X * 0.5
-	halfZ := p.size.Z * 0.5
-	return x >= p.center.X-halfX-radius &&
-		x <= p.center.X+halfX+radius &&
-		z >= p.center.Z-halfZ-radius &&
-		z <= p.center.Z+halfZ+radius
-}
-
-func (g *Game) addWalkPlatform(name string, plat platform, mat *material.Standard) {
-
-	mesh := graphic.NewMesh(geometry.NewBox(plat.size.X, plat.size.Y, plat.size.Z), mat)
-	mesh.SetPositionVec(&plat.center)
-	g.scene.Add(mesh)
-
-	g.platforms = append(g.platforms, plat)
-	g.colliders = append(g.colliders, boxCollider{
-		name:     name,
-		center:   plat.center,
-		size:     plat.size,
-		walkable: true,
-	})
-}
-
-func (g *Game) addBlock(collider boxCollider, mat *material.Standard) {
-
-	mesh := graphic.NewMesh(geometry.NewBox(collider.size.X, collider.size.Y, collider.size.Z), mat)
-	mesh.SetPositionVec(&collider.center)
-	g.scene.Add(mesh)
-	g.colliders = append(g.colliders, collider)
-}
 
 func (g *Game) buildWorld() error {
 
@@ -76,175 +38,184 @@ func (g *Game) buildWorld() error {
 	fillLight.SetPosition(-6, 7, -4)
 	g.scene.Add(fillLight)
 
-	g.buildArenaGeometry()
+	arenaRoot, bounds, collision, err := loadArena()
+	if err != nil {
+		return err
+	}
+
+	g.scene.Add(arenaRoot)
+	g.arenaCollision = collision
+	g.worldBounds = bounds
+	g.configureArenaSpawns()
+
 	if err := g.buildPlayerModel(); err != nil {
 		return err
 	}
 	return nil
 }
 
-func (g *Game) buildArenaGeometry() {
+func loadArena() (core.INode, math32.Box3, *meshCollision, error) {
 
-	g.platforms = nil
-	g.colliders = nil
-
-	floorMat := material.NewStandard(&math32.Color{R: 0.11, G: 0.13, B: 0.17})
-	floorMat.SetEmissiveColor(&math32.Color{R: 0.02, G: 0.03, B: 0.04})
-	floor := platform{
-		center: math32.Vector3{X: 0, Y: -0.5, Z: 0},
-		size:   math32.Vector3{X: 104, Y: 1, Z: 104},
-	}
-	g.addWalkPlatform("floor", floor, floorMat)
-
-	borderMat := material.NewStandard(&math32.Color{R: 0.18, G: 0.22, B: 0.28})
-	borderMat.SetEmissiveColor(&math32.Color{R: 0.02, G: 0.02, B: 0.03})
-
-	for _, wall := range []boxCollider{
-		{name: "north wall", center: math32.Vector3{X: 0, Y: 4, Z: -52}, size: math32.Vector3{X: 104, Y: 8, Z: 2}},
-		{name: "south wall", center: math32.Vector3{X: 0, Y: 4, Z: 52}, size: math32.Vector3{X: 104, Y: 8, Z: 2}},
-		{name: "west wall", center: math32.Vector3{X: -52, Y: 4, Z: 0}, size: math32.Vector3{X: 2, Y: 8, Z: 104}},
-		{name: "east wall", center: math32.Vector3{X: 52, Y: 4, Z: 0}, size: math32.Vector3{X: 2, Y: 8, Z: 104}},
-	} {
-		g.addBlock(wall, borderMat)
+	arenaAssetPath, err := arenaModelPath()
+	if err != nil {
+		return nil, math32.Box3{}, nil, err
 	}
 
-	platformMat := material.NewStandard(&math32.Color{R: 0.33, G: 0.36, B: 0.42})
-	platformMat.SetEmissiveColor(&math32.Color{R: 0.03, G: 0.03, B: 0.04})
-	rampMat := material.NewStandard(&math32.Color{R: 0.42, G: 0.39, B: 0.33})
-	rampMat.SetEmissiveColor(&math32.Color{R: 0.04, G: 0.03, B: 0.02})
-
-	coverMat := material.NewStandard(&math32.Color{R: 0.24, G: 0.28, B: 0.33})
-	coverMat.SetEmissiveColor(&math32.Color{R: 0.03, G: 0.03, B: 0.04})
-
-	for _, plat := range []struct {
-		name string
-		plat platform
-		mat  *material.Standard
-	}{
-		{
-			name: "west gallery",
-			plat: platform{center: math32.Vector3{X: -30, Y: 1.5, Z: 0}, size: math32.Vector3{X: 14, Y: 1, Z: 48}},
-			mat:  platformMat,
-		},
-		{
-			name: "east gallery",
-			plat: platform{center: math32.Vector3{X: 30, Y: 2.5, Z: 0}, size: math32.Vector3{X: 14, Y: 1, Z: 48}},
-			mat:  platformMat,
-		},
-		{
-			name: "north bridge",
-			plat: platform{center: math32.Vector3{X: 0, Y: 4.5, Z: -26}, size: math32.Vector3{X: 24, Y: 1, Z: 12}},
-			mat:  platformMat,
-		},
-		{
-			name: "south catwalk",
-			plat: platform{center: math32.Vector3{X: 0, Y: 2.5, Z: 30}, size: math32.Vector3{X: 24, Y: 1, Z: 10}},
-			mat:  platformMat,
-		},
-		{
-			name: "center bunker",
-			plat: platform{center: math32.Vector3{X: 0, Y: 0.75, Z: 0}, size: math32.Vector3{X: 14, Y: 1.5, Z: 18}},
-			mat:  coverMat,
-		},
-	} {
-		g.addWalkPlatform(plat.name, plat.plat, plat.mat)
+	doc, err := gltfloader.ParseBin(arenaAssetPath)
+	if err != nil {
+		return nil, math32.Box3{}, nil, err
 	}
 
-	for idx, top := range []float32{0.5, 1.0, 1.5, 2.0} {
-		stepHeight := float32(0.5)
-		g.addWalkPlatform(
-			fmt.Sprintf("west ramp %d", idx+1),
-			platform{
-				center: math32.Vector3{X: -30, Y: top - stepHeight*0.5, Z: 36 - float32(idx)*6},
-				size:   math32.Vector3{X: 10, Y: stepHeight, Z: 6},
-			},
-			rampMat,
-		)
+	sceneIdx := 0
+	if doc.Scene != nil {
+		sceneIdx = *doc.Scene
 	}
 
-	for idx, top := range []float32{2.5, 3.0, 3.5, 4.0, 4.5} {
-		stepHeight := float32(0.5)
-		g.addWalkPlatform(
-			fmt.Sprintf("north ramp %d", idx+1),
-			platform{
-				center: math32.Vector3{X: -13 + float32(idx)*6.5, Y: top - stepHeight*0.5, Z: -20},
-				size:   math32.Vector3{X: 6.5, Y: stepHeight, Z: 6},
-			},
-			rampMat,
-		)
+	arenaRoot, err := doc.LoadScene(sceneIdx)
+	if err != nil {
+		return nil, math32.Box3{}, nil, err
 	}
 
-	for idx, top := range []float32{0.5, 1.0, 1.5, 2.0, 2.5, 3.0} {
-		stepHeight := float32(0.5)
-		g.addWalkPlatform(
-			fmt.Sprintf("east stair %d", idx+1),
-			platform{
-				center: math32.Vector3{X: 30, Y: top - stepHeight*0.5, Z: 34 - float32(idx)*4},
-				size:   math32.Vector3{X: 8, Y: stepHeight, Z: 4},
-			},
-			rampMat,
-		)
+	arenaRoot.SetName("arena")
+	arenaRoot.GetNode().SetScale(arenaModelScale, arenaModelScale, arenaModelScale)
+	arenaRoot.UpdateMatrixWorld()
+
+	bounds := arenaRoot.BoundingBox()
+	if !boxIsFinite(bounds) {
+		return nil, math32.Box3{}, nil, fmt.Errorf("arena bounds are invalid")
 	}
 
-	for idx, top := range []float32{3.0, 3.5, 4.0, 4.5} {
-		stepHeight := float32(0.5)
-		g.addWalkPlatform(
-			fmt.Sprintf("bridge stair %d", idx+1),
-			platform{
-				center: math32.Vector3{X: 18 - float32(idx)*4, Y: top - stepHeight*0.5, Z: -18},
-				size:   math32.Vector3{X: 4, Y: stepHeight, Z: 6},
-			},
-			rampMat,
-		)
+	arenaRoot.GetNode().SetPosition(
+		-(bounds.Min.X+bounds.Max.X)*0.5,
+		-bounds.Min.Y,
+		-(bounds.Min.Z+bounds.Max.Z)*0.5,
+	)
+	arenaRoot.UpdateMatrixWorld()
+	bounds = arenaRoot.BoundingBox()
+
+	collision, err := buildCollisionMesh(arenaRoot)
+	if err != nil {
+		return nil, math32.Box3{}, nil, err
+	}
+	if collision == nil {
+		return nil, math32.Box3{}, nil, fmt.Errorf("arena collision mesh is empty")
 	}
 
-	for idx, top := range []float32{0.5, 1.0, 1.5, 2.0, 2.5} {
-		stepHeight := float32(0.5)
-		g.addWalkPlatform(
-			fmt.Sprintf("south ramp %d", idx+1),
-			platform{
-				center: math32.Vector3{X: -8 + float32(idx)*4, Y: top - stepHeight*0.5, Z: 24},
-				size:   math32.Vector3{X: 4, Y: stepHeight, Z: 6},
-			},
-			rampMat,
-		)
+	return arenaRoot, bounds, collision, nil
+}
+
+func (g *Game) configureArenaSpawns() {
+
+	spawns := make([]math32.Vector3, 0, 7)
+	centerX := (g.worldBounds.Min.X + g.worldBounds.Max.X) * 0.5
+	centerZ := (g.worldBounds.Min.Z + g.worldBounds.Max.Z) * 0.5
+	minX := g.worldBounds.Min.X + arenaSpawnMinEdgeClearance
+	maxX := g.worldBounds.Max.X - arenaSpawnMinEdgeClearance
+	minZ := g.worldBounds.Min.Z + arenaSpawnMinEdgeClearance
+	maxZ := g.worldBounds.Max.Z - arenaSpawnMinEdgeClearance
+
+	candidates := []math32.Vector3{
+		{X: minX, Z: minZ},
+		{X: maxX, Z: minZ},
+		{X: minX, Z: maxZ},
+		{X: maxX, Z: maxZ},
+		{X: centerX, Z: minZ},
+		{X: centerX, Z: maxZ},
+		{X: minX, Z: centerZ},
+		{X: maxX, Z: centerZ},
+		{X: centerX, Z: centerZ},
 	}
 
-	for _, block := range []boxCollider{
-		{name: "lane wall", center: math32.Vector3{X: -16, Y: 2, Z: 10}, size: math32.Vector3{X: 3, Y: 4, Z: 30}},
-		{name: "lane wall", center: math32.Vector3{X: 16, Y: 2, Z: -10}, size: math32.Vector3{X: 3, Y: 4, Z: 30}},
-		{name: "cross wall", center: math32.Vector3{X: 0, Y: 2, Z: -8}, size: math32.Vector3{X: 18, Y: 4, Z: 3}},
-		{name: "cross wall", center: math32.Vector3{X: 0, Y: 2, Z: 14}, size: math32.Vector3{X: 18, Y: 4, Z: 3}},
-		{name: "cover block", center: math32.Vector3{X: -6, Y: 0.75, Z: 24}, size: math32.Vector3{X: 4, Y: 1.5, Z: 3}},
-		{name: "cover block", center: math32.Vector3{X: 6, Y: 0.75, Z: 24}, size: math32.Vector3{X: 4, Y: 1.5, Z: 3}},
-		{name: "cover block", center: math32.Vector3{X: -24, Y: 0.75, Z: -16}, size: math32.Vector3{X: 4, Y: 1.5, Z: 4}},
-		{name: "cover block", center: math32.Vector3{X: 24, Y: 0.75, Z: 16}, size: math32.Vector3{X: 4, Y: 1.5, Z: 4}},
-		{name: "pillar base", center: math32.Vector3{X: -30, Y: 0.75, Z: -22}, size: math32.Vector3{X: 3, Y: 1.5, Z: 3}},
-		{name: "pillar base", center: math32.Vector3{X: 30, Y: 0.75, Z: 22}, size: math32.Vector3{X: 3, Y: 1.5, Z: 3}},
-	} {
-		g.addBlock(block, coverMat)
+	for _, candidate := range candidates {
+		spawn, ok := g.findArenaSpawn(candidate, spawns)
+		if !ok {
+			continue
+		}
+		spawns = append(spawns, spawn)
+		if len(spawns) == 7 {
+			break
+		}
 	}
 
-	columnMat := material.NewStandard(&math32.Color{R: 0.51, G: 0.34, B: 0.2})
-	columnMat.SetEmissiveColor(&math32.Color{R: 0.04, G: 0.02, B: 0.01})
-
-	for idx, pos := range []math32.Vector3{
-		{X: -38, Y: 2.0, Z: 34},
-		{X: 38, Y: 2.0, Z: -34},
-		{X: -18, Y: 2.5, Z: -30},
-		{X: 18, Y: 2.5, Z: 30},
-	} {
-		height := float32(3.0 + float32(idx))
-		center := math32.Vector3{X: pos.X, Y: pos.Y, Z: pos.Z}
-		column := graphic.NewMesh(geometry.NewCylinder(0.8, float64(height), 16, 1, true, true), columnMat)
-		column.SetPosition(center.X, center.Y, center.Z)
-		g.scene.Add(column)
-		g.colliders = append(g.colliders, boxCollider{
-			name:   "pillar",
-			center: center,
-			size:   math32.Vector3{X: 1.6, Y: height, Z: 1.6},
-		})
+	if len(spawns) == 0 {
+		fallback, ok := g.findArenaSpawn(math32.Vector3{X: centerX, Z: centerZ}, nil)
+		if ok {
+			spawns = append(spawns, fallback)
+		}
 	}
+
+	if len(spawns) == 0 {
+		g.playerSpawn = math32.Vector3{}
+		g.combatantSpawns = nil
+		return
+	}
+
+	g.playerSpawn = spawns[len(spawns)-1]
+	g.combatantSpawns = spawns
+}
+
+func (g *Game) findArenaSpawn(origin math32.Vector3, existing []math32.Vector3) (math32.Vector3, bool) {
+
+	offsets := []math32.Vector3{
+		{},
+		{X: 1},
+		{X: -1},
+		{Z: 1},
+		{Z: -1},
+		{X: 1, Z: 1},
+		{X: 1, Z: -1},
+		{X: -1, Z: 1},
+		{X: -1, Z: -1},
+	}
+
+	for layer := 0; layer <= arenaSpawnSearchLayers; layer++ {
+		for _, offset := range offsets {
+			candidate := origin
+			candidate.X += offset.X * arenaSpawnSearchStep * float32(layer)
+			candidate.Z += offset.Z * arenaSpawnSearchStep * float32(layer)
+
+			supportY, ok := g.highestSupportAt(candidate.X, candidate.Z)
+			if !ok {
+				continue
+			}
+
+			candidate.Y = supportY
+			if g.positionBlocked(candidate, true) || spawnTooClose(candidate, existing) {
+				continue
+			}
+
+			return candidate, true
+		}
+	}
+
+	return math32.Vector3{}, false
+}
+
+func (g *Game) highestSupportAt(x, z float32) (float32, bool) {
+
+	if g.arenaCollision == nil || !boxIsFinite(g.worldBounds) {
+		return 0, false
+	}
+
+	return g.arenaCollision.supportAt(
+		x,
+		z,
+		g.worldBounds.Max.Y+playerHeight+2,
+		g.worldBounds.Min.Y-playerHeight-2,
+	)
+}
+
+func spawnTooClose(candidate math32.Vector3, existing []math32.Vector3) bool {
+
+	minDistanceSq := float32(arenaSpawnMinSpacing * arenaSpawnMinSpacing)
+	for _, current := range existing {
+		deltaX := candidate.X - current.X
+		deltaZ := candidate.Z - current.Z
+		if deltaX*deltaX+deltaZ*deltaZ < minDistanceSq {
+			return true
+		}
+	}
+	return false
 }
 
 func (g *Game) buildPlayerModel() error {
@@ -299,6 +270,11 @@ func playerModelPath() (string, error) {
 	return assetPath("gopher", "gopher.obj")
 }
 
+func arenaModelPath() (string, error) {
+
+	return assetPath("dust2.glb")
+}
+
 func fragGoLogoPath() (string, error) {
 
 	return assetPath("fraggo_logo.png")
@@ -313,4 +289,23 @@ func assetPath(parts ...string) (string, error) {
 
 	segments := append([]string{filepath.Dir(currentFile), "..", "..", "assets"}, parts...)
 	return filepath.Clean(filepath.Join(segments...)), nil
+}
+
+func boxIsFinite(box math32.Box3) bool {
+
+	return componentIsFinite(box.Min.X) &&
+		componentIsFinite(box.Min.Y) &&
+		componentIsFinite(box.Min.Z) &&
+		componentIsFinite(box.Max.X) &&
+		componentIsFinite(box.Max.Y) &&
+		componentIsFinite(box.Max.Z) &&
+		box.Min.X <= box.Max.X &&
+		box.Min.Y <= box.Max.Y &&
+		box.Min.Z <= box.Max.Z
+}
+
+func componentIsFinite(value float32) bool {
+
+	f64 := float64(value)
+	return !math.IsNaN(f64) && !math.IsInf(f64, 0) && math.Abs(f64) < 1e6
 }

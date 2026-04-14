@@ -51,7 +51,7 @@ type combatant struct {
 	deaths       int
 }
 
-var combatantSpawnPoints = []math32.Vector3{
+var defaultCombatantSpawnPoints = []math32.Vector3{
 	{X: -30, Y: 1, Z: -26},
 	{X: 30, Y: 2, Z: -18},
 	{X: 0, Y: 4, Z: -26},
@@ -152,6 +152,11 @@ func (g *Game) spawnCombatants() error {
 	g.clearCombatants()
 
 	botCount := g.desiredBotCount()
+	spawnPoints := g.combatantSpawns
+	if len(spawnPoints) == 0 {
+		spawnPoints = defaultCombatantSpawnPoints
+	}
+
 	for idx := 0; idx < botCount; idx++ {
 		root, err := newGopherRoot(fmt.Sprintf("bot-%d", idx+1))
 		if err != nil {
@@ -161,7 +166,7 @@ func (g *Game) spawnCombatants() error {
 		combatant := &combatant{
 			name:       fmt.Sprintf("Bot %d", idx+1),
 			root:       root,
-			spawn:      combatantSpawnPoints[idx%len(combatantSpawnPoints)],
+			spawn:      spawnPoints[idx%len(spawnPoints)],
 			radius:     0.9,
 			health:     100,
 			alive:      true,
