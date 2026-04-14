@@ -28,8 +28,16 @@ const (
 	weaponDamage     = 34
 	weaponRange      = 90.0
 	playerRadius     = 0.6
+	playerHeight     = 1.8
 	playerEyeHeight  = 1.55
-	worldLimit       = 22.0
+	worldLimit       = 46.0
+	stepUpHeight     = 0.7
+	stepDownHeight   = 0.85
+	groundSnapHeight = 0.35
+	spawnX           = 0.0
+	spawnY           = 0.0
+	spawnZ           = 34.0
+	collisionEpsilon = 0.01
 )
 
 type Game struct {
@@ -101,7 +109,7 @@ func New() (*Game, error) {
 		camera:   camera.NewPerspective(float32(windowWidth)/float32(windowHeight), 0.1, 300, 78, camera.Vertical),
 	}
 
-	g.playerPos.Set(0, 0, 12)
+	g.playerPos.Set(spawnX, spawnY, spawnZ)
 	g.playerGrounded = true
 	g.yaw = 0
 
@@ -251,9 +259,8 @@ func (g *Game) updatePlayer(dt float32) {
 	g.jumpHeld = jumpPressed
 
 	previousY := g.playerPos.Y
-	g.playerPos.X += g.playerVelocity.X * dt
 	g.playerPos.Y += g.playerVelocity.Y * dt
-	g.playerPos.Z += g.playerVelocity.Z * dt
+	g.movePlayerHorizontal(g.playerVelocity.X*dt, g.playerVelocity.Z*dt)
 
 	g.playerPos.X = math32.Clamp(g.playerPos.X, -worldLimit, worldLimit)
 	g.playerPos.Z = math32.Clamp(g.playerPos.Z, -worldLimit, worldLimit)
@@ -269,7 +276,7 @@ func (g *Game) updatePlayer(dt float32) {
 
 	if g.playerPos.Y < -10 {
 		g.resetPlayer()
-		g.setStatus("Respawned on the high lane", 2*time.Second)
+		g.setStatus("Respawned at south spawn", 2*time.Second)
 	}
 
 	g.syncPlayerModel()
@@ -277,33 +284,113 @@ func (g *Game) updatePlayer(dt float32) {
 
 func (g *Game) resolveGround(previousY float32) (bool, float32) {
 
+	bestSupport := float32(0)
 	landed := false
-	supportY := float32(0)
-
-	if g.playerVelocity.Y <= 0 && previousY >= 0 && g.playerPos.Y <= 0.25 {
-		landed = true
-		supportY = 0
-	}
-
 	for _, platform := range g.platforms {
 		if !platform.contains(g.playerPos.X, g.playerPos.Z, playerRadius) {
 			continue
 		}
+
 		top := platform.top()
-		if g.playerVelocity.Y <= 0 && previousY >= top-0.1 && g.playerPos.Y <= top+0.25 {
-			if !landed || top > supportY {
-				landed = true
-				supportY = top
-			}
+		canLand := g.playerVelocity.Y <= 0 &&
+			previousY >= top-0.1 &&
+			g.playerPos.Y <= top+groundSnapHeight
+		canStep := g.playerGrounded &&
+			top >= previousY-stepDownHeight &&
+			top <= previousY+stepUpHeight
+		if !canLand && !canStep {
+			continue
+		}
+
+		if !landed || top > bestSupport {
+			bestSupport = top
+			landed = true
 		}
 	}
 
-	return landed, supportY
+	return landed, bestSupport
+}
+
+func (g *Game) movePlayerHorizontal(deltaX, deltaZ float32) {
+
+	g.playerPos.X, g.playerVelocity.X = g.resolvePlayerAxis(g.playerPos, deltaX, true, g.playerVelocity.X)
+
+	intermediate := g.playerPos
+	g.playerPos.Z, g.playerVelocity.Z = g.resolvePlayerAxis(intermediate, deltaZ, false, g.playerVelocity.Z)
+}
+
+func (g *Game) resolvePlayerAxis(base math32.Vector3, delta float32, moveX bool, velocity float32) (float32, float32) {
+
+	if math32.Abs(delta) < 0.00001 {
+		if moveX {
+			return base.X, velocity
+		}
+		return base.Z, velocity
+	}
+
+	target := base
+	if moveX {
+		target.X += delta
+	} else {
+		target.Z += delta
+	}
+
+	for idx := range g.colliders {
+		collider := g.colliders[idx]
+		if !g.colliderBlocksPlayerAt(collider, target) {
+			continue
+		}
+
+		min := collider.min()
+		max := collider.max()
+		if moveX {
+			if delta > 0 {
+				target.X = min.X - playerRadius - collisionEpsilon
+			} else {
+				target.X = max.X + playerRadius + collisionEpsilon
+			}
+		} else {
+			if delta > 0 {
+				target.Z = min.Z - playerRadius - collisionEpsilon
+			} else {
+				target.Z = max.Z + playerRadius + collisionEpsilon
+			}
+		}
+		velocity = 0
+	}
+
+	if moveX {
+		return target.X, velocity
+	}
+	return target.Z, velocity
+}
+
+func (g *Game) colliderBlocksPlayerAt(collider boxCollider, pos math32.Vector3) bool {
+
+	playerBottom := pos.Y
+	playerTop := pos.Y + playerHeight
+	if collider.top() <= playerBottom+0.05 || collider.bottom() >= playerTop-0.05 {
+		return false
+	}
+
+	if collider.walkable && g.playerGrounded {
+		top := collider.top()
+		if top >= playerBottom-groundSnapHeight && top <= playerBottom+stepUpHeight {
+			return false
+		}
+	}
+
+	min := collider.min()
+	max := collider.max()
+	return pos.X >= min.X-playerRadius &&
+		pos.X <= max.X+playerRadius &&
+		pos.Z >= min.Z-playerRadius &&
+		pos.Z <= max.Z+playerRadius
 }
 
 func (g *Game) resetPlayer() {
 
-	g.playerPos.Set(0, 0, 12)
+	g.playerPos.Set(spawnX, spawnY, spawnZ)
 	g.playerVelocity.Set(0, 0, 0)
 	g.playerGrounded = true
 	g.pitch = 0

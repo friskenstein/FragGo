@@ -3,9 +3,38 @@ package game
 import "github.com/g3n/engine/math32"
 
 type boxCollider struct {
-	name   string
-	center math32.Vector3
-	size   math32.Vector3
+	name     string
+	center   math32.Vector3
+	size     math32.Vector3
+	walkable bool
+}
+
+func (c boxCollider) min() math32.Vector3 {
+
+	return math32.Vector3{
+		X: c.center.X - c.size.X*0.5,
+		Y: c.center.Y - c.size.Y*0.5,
+		Z: c.center.Z - c.size.Z*0.5,
+	}
+}
+
+func (c boxCollider) max() math32.Vector3 {
+
+	return math32.Vector3{
+		X: c.center.X + c.size.X*0.5,
+		Y: c.center.Y + c.size.Y*0.5,
+		Z: c.center.Z + c.size.Z*0.5,
+	}
+}
+
+func (c boxCollider) top() float32 {
+
+	return c.center.Y + c.size.Y*0.5
+}
+
+func (c boxCollider) bottom() float32 {
+
+	return c.center.Y - c.size.Y*0.5
 }
 
 type traceHit struct {
@@ -65,16 +94,9 @@ func (g *Game) traceScene(origin math32.Vector3, direction *math32.Vector3, maxD
 
 func rayBoxHit(origin math32.Vector3, direction *math32.Vector3, center, size math32.Vector3) (float32, bool) {
 
-	min := math32.Vector3{
-		X: center.X - size.X*0.5,
-		Y: center.Y - size.Y*0.5,
-		Z: center.Z - size.Z*0.5,
-	}
-	max := math32.Vector3{
-		X: center.X + size.X*0.5,
-		Y: center.Y + size.Y*0.5,
-		Z: center.Z + size.Z*0.5,
-	}
+	collider := boxCollider{center: center, size: size}
+	min := collider.min()
+	max := collider.max()
 
 	tMin := float32(0)
 	tMax := float32(1e9)

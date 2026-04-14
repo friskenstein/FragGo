@@ -41,6 +41,29 @@ func (p platform) contains(x, z, radius float32) bool {
 		z <= p.center.Z+halfZ+radius
 }
 
+func (g *Game) addWalkPlatform(name string, plat platform, mat *material.Standard) {
+
+	mesh := graphic.NewMesh(geometry.NewBox(plat.size.X, plat.size.Y, plat.size.Z), mat)
+	mesh.SetPositionVec(&plat.center)
+	g.scene.Add(mesh)
+
+	g.platforms = append(g.platforms, plat)
+	g.colliders = append(g.colliders, boxCollider{
+		name:     name,
+		center:   plat.center,
+		size:     plat.size,
+		walkable: true,
+	})
+}
+
+func (g *Game) addBlock(collider boxCollider, mat *material.Standard) {
+
+	mesh := graphic.NewMesh(geometry.NewBox(collider.size.X, collider.size.Y, collider.size.Z), mat)
+	mesh.SetPositionVec(&collider.center)
+	g.scene.Add(mesh)
+	g.colliders = append(g.colliders, collider)
+}
+
 type targetDummy struct {
 	name          string
 	mesh          *graphic.Mesh
@@ -112,66 +135,157 @@ func (g *Game) buildWorld() error {
 
 func (g *Game) buildArenaGeometry() {
 
+	g.platforms = nil
+	g.colliders = nil
+
 	floorMat := material.NewStandard(&math32.Color{R: 0.11, G: 0.13, B: 0.17})
 	floorMat.SetEmissiveColor(&math32.Color{R: 0.02, G: 0.03, B: 0.04})
-	floorCollider := boxCollider{
-		name:   "floor",
+	floor := platform{
 		center: math32.Vector3{X: 0, Y: -0.5, Z: 0},
-		size:   math32.Vector3{X: 54, Y: 1, Z: 54},
+		size:   math32.Vector3{X: 104, Y: 1, Z: 104},
 	}
-	floor := graphic.NewMesh(geometry.NewBox(floorCollider.size.X, floorCollider.size.Y, floorCollider.size.Z), floorMat)
-	floor.SetPositionVec(&floorCollider.center)
-	g.scene.Add(floor)
-	g.colliders = append(g.colliders, floorCollider)
+	g.addWalkPlatform("floor", floor, floorMat)
 
 	borderMat := material.NewStandard(&math32.Color{R: 0.18, G: 0.22, B: 0.28})
 	borderMat.SetEmissiveColor(&math32.Color{R: 0.02, G: 0.02, B: 0.03})
 
 	for _, wall := range []boxCollider{
-		{name: "north wall", center: math32.Vector3{X: 0, Y: 3, Z: -27}, size: math32.Vector3{X: 54, Y: 6, Z: 2}},
-		{name: "south wall", center: math32.Vector3{X: 0, Y: 3, Z: 27}, size: math32.Vector3{X: 54, Y: 6, Z: 2}},
-		{name: "west wall", center: math32.Vector3{X: -27, Y: 3, Z: 0}, size: math32.Vector3{X: 2, Y: 6, Z: 54}},
-		{name: "east wall", center: math32.Vector3{X: 27, Y: 3, Z: 0}, size: math32.Vector3{X: 2, Y: 6, Z: 54}},
+		{name: "north wall", center: math32.Vector3{X: 0, Y: 4, Z: -52}, size: math32.Vector3{X: 104, Y: 8, Z: 2}},
+		{name: "south wall", center: math32.Vector3{X: 0, Y: 4, Z: 52}, size: math32.Vector3{X: 104, Y: 8, Z: 2}},
+		{name: "west wall", center: math32.Vector3{X: -52, Y: 4, Z: 0}, size: math32.Vector3{X: 2, Y: 8, Z: 104}},
+		{name: "east wall", center: math32.Vector3{X: 52, Y: 4, Z: 0}, size: math32.Vector3{X: 2, Y: 8, Z: 104}},
 	} {
-		mesh := graphic.NewMesh(geometry.NewBox(wall.size.X, wall.size.Y, wall.size.Z), borderMat)
-		mesh.SetPositionVec(&wall.center)
-		g.scene.Add(mesh)
-		g.colliders = append(g.colliders, wall)
+		g.addBlock(wall, borderMat)
 	}
 
 	platformMat := material.NewStandard(&math32.Color{R: 0.33, G: 0.36, B: 0.42})
 	platformMat.SetEmissiveColor(&math32.Color{R: 0.03, G: 0.03, B: 0.04})
+	rampMat := material.NewStandard(&math32.Color{R: 0.42, G: 0.39, B: 0.33})
+	rampMat.SetEmissiveColor(&math32.Color{R: 0.04, G: 0.03, B: 0.02})
 
-	g.platforms = []platform{
-		{center: math32.Vector3{X: -9, Y: 1.5, Z: 4}, size: math32.Vector3{X: 8, Y: 1, Z: 8}},
-		{center: math32.Vector3{X: 9, Y: 3.5, Z: -2}, size: math32.Vector3{X: 8, Y: 1, Z: 8}},
-		{center: math32.Vector3{X: 0, Y: 5.5, Z: -12}, size: math32.Vector3{X: 10, Y: 1, Z: 7}},
-		{center: math32.Vector3{X: -16, Y: 5.5, Z: -10}, size: math32.Vector3{X: 6, Y: 1, Z: 6}},
-		{center: math32.Vector3{X: 16, Y: 7.5, Z: 10}, size: math32.Vector3{X: 6, Y: 1, Z: 6}},
+	coverMat := material.NewStandard(&math32.Color{R: 0.24, G: 0.28, B: 0.33})
+	coverMat.SetEmissiveColor(&math32.Color{R: 0.03, G: 0.03, B: 0.04})
+
+	for _, plat := range []struct {
+		name string
+		plat platform
+		mat  *material.Standard
+	}{
+		{
+			name: "west gallery",
+			plat: platform{center: math32.Vector3{X: -30, Y: 1.5, Z: 0}, size: math32.Vector3{X: 14, Y: 1, Z: 48}},
+			mat:  platformMat,
+		},
+		{
+			name: "east gallery",
+			plat: platform{center: math32.Vector3{X: 30, Y: 2.5, Z: 0}, size: math32.Vector3{X: 14, Y: 1, Z: 48}},
+			mat:  platformMat,
+		},
+		{
+			name: "north bridge",
+			plat: platform{center: math32.Vector3{X: 0, Y: 4.5, Z: -26}, size: math32.Vector3{X: 24, Y: 1, Z: 12}},
+			mat:  platformMat,
+		},
+		{
+			name: "south catwalk",
+			plat: platform{center: math32.Vector3{X: 0, Y: 2.5, Z: 30}, size: math32.Vector3{X: 24, Y: 1, Z: 10}},
+			mat:  platformMat,
+		},
+		{
+			name: "center bunker",
+			plat: platform{center: math32.Vector3{X: 0, Y: 0.75, Z: 0}, size: math32.Vector3{X: 14, Y: 1.5, Z: 18}},
+			mat:  coverMat,
+		},
+	} {
+		g.addWalkPlatform(plat.name, plat.plat, plat.mat)
 	}
 
-	for _, plat := range g.platforms {
-		mesh := graphic.NewMesh(geometry.NewBox(plat.size.X, plat.size.Y, plat.size.Z), platformMat)
-		mesh.SetPositionVec(&plat.center)
-		g.scene.Add(mesh)
-		g.colliders = append(g.colliders, boxCollider{
-			name:   "platform",
-			center: plat.center,
-			size:   plat.size,
-		})
+	for idx, top := range []float32{0.5, 1.0, 1.5, 2.0} {
+		stepHeight := float32(0.5)
+		g.addWalkPlatform(
+			fmt.Sprintf("west ramp %d", idx+1),
+			platform{
+				center: math32.Vector3{X: -30, Y: top - stepHeight*0.5, Z: 36 - float32(idx)*6},
+				size:   math32.Vector3{X: 10, Y: stepHeight, Z: 6},
+			},
+			rampMat,
+		)
+	}
+
+	for idx, top := range []float32{2.5, 3.0, 3.5, 4.0, 4.5} {
+		stepHeight := float32(0.5)
+		g.addWalkPlatform(
+			fmt.Sprintf("north ramp %d", idx+1),
+			platform{
+				center: math32.Vector3{X: -13 + float32(idx)*6.5, Y: top - stepHeight*0.5, Z: -20},
+				size:   math32.Vector3{X: 6.5, Y: stepHeight, Z: 6},
+			},
+			rampMat,
+		)
+	}
+
+	for idx, top := range []float32{0.5, 1.0, 1.5, 2.0, 2.5, 3.0} {
+		stepHeight := float32(0.5)
+		g.addWalkPlatform(
+			fmt.Sprintf("east stair %d", idx+1),
+			platform{
+				center: math32.Vector3{X: 30, Y: top - stepHeight*0.5, Z: 34 - float32(idx)*4},
+				size:   math32.Vector3{X: 8, Y: stepHeight, Z: 4},
+			},
+			rampMat,
+		)
+	}
+
+	for idx, top := range []float32{3.0, 3.5, 4.0, 4.5} {
+		stepHeight := float32(0.5)
+		g.addWalkPlatform(
+			fmt.Sprintf("bridge stair %d", idx+1),
+			platform{
+				center: math32.Vector3{X: 18 - float32(idx)*4, Y: top - stepHeight*0.5, Z: -18},
+				size:   math32.Vector3{X: 4, Y: stepHeight, Z: 6},
+			},
+			rampMat,
+		)
+	}
+
+	for idx, top := range []float32{0.5, 1.0, 1.5, 2.0, 2.5} {
+		stepHeight := float32(0.5)
+		g.addWalkPlatform(
+			fmt.Sprintf("south ramp %d", idx+1),
+			platform{
+				center: math32.Vector3{X: -8 + float32(idx)*4, Y: top - stepHeight*0.5, Z: 24},
+				size:   math32.Vector3{X: 4, Y: stepHeight, Z: 6},
+			},
+			rampMat,
+		)
+	}
+
+	for _, block := range []boxCollider{
+		{name: "lane wall", center: math32.Vector3{X: -16, Y: 2, Z: 10}, size: math32.Vector3{X: 3, Y: 4, Z: 30}},
+		{name: "lane wall", center: math32.Vector3{X: 16, Y: 2, Z: -10}, size: math32.Vector3{X: 3, Y: 4, Z: 30}},
+		{name: "cross wall", center: math32.Vector3{X: 0, Y: 2, Z: -8}, size: math32.Vector3{X: 18, Y: 4, Z: 3}},
+		{name: "cross wall", center: math32.Vector3{X: 0, Y: 2, Z: 14}, size: math32.Vector3{X: 18, Y: 4, Z: 3}},
+		{name: "cover block", center: math32.Vector3{X: -6, Y: 0.75, Z: 24}, size: math32.Vector3{X: 4, Y: 1.5, Z: 3}},
+		{name: "cover block", center: math32.Vector3{X: 6, Y: 0.75, Z: 24}, size: math32.Vector3{X: 4, Y: 1.5, Z: 3}},
+		{name: "cover block", center: math32.Vector3{X: -24, Y: 0.75, Z: -16}, size: math32.Vector3{X: 4, Y: 1.5, Z: 4}},
+		{name: "cover block", center: math32.Vector3{X: 24, Y: 0.75, Z: 16}, size: math32.Vector3{X: 4, Y: 1.5, Z: 4}},
+		{name: "pillar base", center: math32.Vector3{X: -30, Y: 0.75, Z: -22}, size: math32.Vector3{X: 3, Y: 1.5, Z: 3}},
+		{name: "pillar base", center: math32.Vector3{X: 30, Y: 0.75, Z: 22}, size: math32.Vector3{X: 3, Y: 1.5, Z: 3}},
+	} {
+		g.addBlock(block, coverMat)
 	}
 
 	columnMat := material.NewStandard(&math32.Color{R: 0.51, G: 0.34, B: 0.2})
 	columnMat.SetEmissiveColor(&math32.Color{R: 0.04, G: 0.02, B: 0.01})
 
 	for idx, pos := range []math32.Vector3{
-		{X: -18, Y: 1.5, Z: 18},
-		{X: 18, Y: 1.5, Z: -18},
-		{X: -18, Y: 1.5, Z: -18},
-		{X: 18, Y: 1.5, Z: 18},
+		{X: -38, Y: 2.0, Z: 34},
+		{X: 38, Y: 2.0, Z: -34},
+		{X: -18, Y: 2.5, Z: -30},
+		{X: 18, Y: 2.5, Z: 30},
 	} {
 		height := float32(3.0 + float32(idx))
-		center := math32.Vector3{X: pos.X, Y: 1.5 + float32(idx)*0.5, Z: pos.Z}
+		center := math32.Vector3{X: pos.X, Y: pos.Y, Z: pos.Z}
 		column := graphic.NewMesh(geometry.NewCylinder(0.8, float64(height), 16, 1, true, true), columnMat)
 		column.SetPosition(center.X, center.Y, center.Z)
 		g.scene.Add(column)
@@ -243,7 +357,7 @@ func (g *Game) spawnTargets() {
 	}{
 		{
 			name:         "Rook",
-			anchor:       math32.Vector3{X: -12, Y: 2.8, Z: 8},
+			anchor:       math32.Vector3{X: -30, Y: 2.6, Z: -6},
 			baseColor:    math32.Color{R: 0.2, G: 0.83, B: 0.76},
 			orbitRadius:  2.2,
 			orbitSpeed:   1.4,
@@ -253,7 +367,7 @@ func (g *Game) spawnTargets() {
 		},
 		{
 			name:         "Nova",
-			anchor:       math32.Vector3{X: 10, Y: 5.1, Z: -2},
+			anchor:       math32.Vector3{X: 30, Y: 3.6, Z: -10},
 			baseColor:    math32.Color{R: 0.93, G: 0.67, B: 0.24},
 			orbitRadius:  1.9,
 			orbitSpeed:   1.8,
@@ -263,7 +377,7 @@ func (g *Game) spawnTargets() {
 		},
 		{
 			name:         "Echo",
-			anchor:       math32.Vector3{X: 0, Y: 7.1, Z: -12},
+			anchor:       math32.Vector3{X: 0, Y: 6.0, Z: -26},
 			baseColor:    math32.Color{R: 0.83, G: 0.34, B: 0.52},
 			orbitRadius:  2.8,
 			orbitSpeed:   1.2,
@@ -273,9 +387,9 @@ func (g *Game) spawnTargets() {
 		},
 		{
 			name:         "Vex",
-			anchor:       math32.Vector3{X: 16, Y: 9.2, Z: 10},
+			anchor:       math32.Vector3{X: 0, Y: 4.0, Z: 30},
 			baseColor:    math32.Color{R: 0.44, G: 0.58, B: 0.98},
-			orbitRadius:  1.4,
+			orbitRadius:  2.1,
 			orbitSpeed:   2.1,
 			bobAmplitude: 0.7,
 			bobSpeed:     2.8,
