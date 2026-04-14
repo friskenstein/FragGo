@@ -41,7 +41,7 @@ type traceHit struct {
 	hit      bool
 	distance float32
 	point    math32.Vector3
-	target   *targetDummy
+	target   *combatant
 	collider *boxCollider
 }
 
@@ -75,16 +75,16 @@ func (g *Game) traceScene(origin math32.Vector3, direction *math32.Vector3, maxD
 		}
 	}
 
-	for _, target := range g.targets {
-		if !target.alive {
+	for _, combatant := range g.combatants {
+		if !combatant.alive {
 			continue
 		}
-		if distance, ok := raySphereHit(origin, direction, target.position(), target.radius); ok && distance <= best.distance {
+		if distance, ok := raySphereHit(origin, direction, combatant.position(), combatant.radius); ok && distance <= best.distance {
 			best.hit = true
 			best.distance = distance
 			best.point = origin
 			best.point.Add(direction.Clone().MultiplyScalar(distance))
-			best.target = target
+			best.target = combatant
 			best.collider = nil
 		}
 	}

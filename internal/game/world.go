@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"path/filepath"
 	"runtime"
-	"time"
 
 	"github.com/g3n/engine/core"
 	"github.com/g3n/engine/geometry"
@@ -64,54 +63,6 @@ func (g *Game) addBlock(collider boxCollider, mat *material.Standard) {
 	g.colliders = append(g.colliders, collider)
 }
 
-type targetDummy struct {
-	name          string
-	mesh          *graphic.Mesh
-	bodyMaterial  *material.Standard
-	radius        float32
-	anchor        math32.Vector3
-	orbitRadius   float32
-	orbitSpeed    float32
-	bobAmplitude  float32
-	bobSpeed      float32
-	phase         float32
-	health        int
-	alive         bool
-	respawnTimer  time.Duration
-	hitFlash      time.Duration
-	baseColor     math32.Color
-	emissiveColor math32.Color
-	flashColor    math32.Color
-	fraggedColor  math32.Color
-	lastWorldPos  math32.Vector3
-}
-
-func (t *targetDummy) position() math32.Vector3 {
-
-	return t.lastWorldPos
-}
-
-func (t *targetDummy) applyDamage(amount int) bool {
-
-	if !t.alive {
-		return false
-	}
-
-	t.health -= amount
-	t.hitFlash = 120 * time.Millisecond
-	if t.health > 0 {
-		return false
-	}
-
-	t.health = 0
-	t.alive = false
-	t.respawnTimer = 1400 * time.Millisecond
-	t.bodyMaterial.SetColor(&t.fraggedColor)
-	t.bodyMaterial.SetEmissiveColor(&math32.Color{0.9, 0.1, 0.1})
-	t.mesh.SetVisible(false)
-	return true
-}
-
 func (g *Game) buildWorld() error {
 
 	g.scene.Add(light.NewAmbient(&math32.Color{R: 0.8, G: 0.85, B: 1.0}, 0.45))
@@ -129,7 +80,6 @@ func (g *Game) buildWorld() error {
 	if err := g.buildPlayerModel(); err != nil {
 		return err
 	}
-	g.spawnTargets()
 	return nil
 }
 
@@ -299,30 +249,42 @@ func (g *Game) buildArenaGeometry() {
 
 func (g *Game) buildPlayerModel() error {
 
-	g.playerRoot = core.NewNode()
-	playerAssetPath, err := playerModelPath()
+	root, err := newGopherRoot("local-player")
 	if err != nil {
 		return err
 	}
-
-	decoder, err := objloader.Decode(playerAssetPath, "")
-	if err != nil {
-		return err
-	}
-
-	playerModel, err := decoder.NewGroup()
-	if err != nil {
-		return err
-	}
-
-	playerModel.SetName("player-model")
-	playerModel.SetScale(playerModelScale, playerModelScale, playerModelScale)
-	playerModel.SetPosition(playerModelCenterShift, playerModelGroundLift, 0)
-	g.playerRoot.Add(playerModel)
+	g.playerRoot = root
 
 	g.scene.Add(g.playerRoot)
 	g.syncPlayerModel()
 	return nil
+}
+
+func newGopherRoot(name string) (*core.Node, error) {
+
+	root := core.NewNode()
+	root.SetName(name)
+
+	playerAssetPath, err := playerModelPath()
+	if err != nil {
+		return nil, err
+	}
+
+	decoder, err := objloader.Decode(playerAssetPath, "")
+	if err != nil {
+		return nil, err
+	}
+
+	playerModel, err := decoder.NewGroup()
+	if err != nil {
+		return nil, err
+	}
+
+	playerModel.SetName(name + "-model")
+	playerModel.SetScale(playerModelScale, playerModelScale, playerModelScale)
+	playerModel.SetPosition(playerModelCenterShift, playerModelGroundLift, 0)
+	root.Add(playerModel)
+	return root, nil
 }
 
 func (g *Game) syncPlayerModel() {
@@ -340,143 +302,4 @@ func playerModelPath() (string, error) {
 	}
 
 	return filepath.Clean(filepath.Join(filepath.Dir(currentFile), "..", "..", "assets", "gopher", "gopher.obj")), nil
-}
-
-func (g *Game) spawnTargets() {
-
-	targetGeom := geometry.NewSphere(0.75, 16, 12)
-	layout := []struct {
-		name         string
-		anchor       math32.Vector3
-		baseColor    math32.Color
-		orbitRadius  float32
-		orbitSpeed   float32
-		bobAmplitude float32
-		bobSpeed     float32
-		phase        float32
-	}{
-		{
-			name:         "Rook",
-			anchor:       math32.Vector3{X: -30, Y: 2.6, Z: -6},
-			baseColor:    math32.Color{R: 0.2, G: 0.83, B: 0.76},
-			orbitRadius:  2.2,
-			orbitSpeed:   1.4,
-			bobAmplitude: 0.6,
-			bobSpeed:     2.5,
-			phase:        0.1,
-		},
-		{
-			name:         "Nova",
-			anchor:       math32.Vector3{X: 30, Y: 3.6, Z: -10},
-			baseColor:    math32.Color{R: 0.93, G: 0.67, B: 0.24},
-			orbitRadius:  1.9,
-			orbitSpeed:   1.8,
-			bobAmplitude: 0.8,
-			bobSpeed:     3.2,
-			phase:        1.1,
-		},
-		{
-			name:         "Echo",
-			anchor:       math32.Vector3{X: 0, Y: 6.0, Z: -26},
-			baseColor:    math32.Color{R: 0.83, G: 0.34, B: 0.52},
-			orbitRadius:  2.8,
-			orbitSpeed:   1.2,
-			bobAmplitude: 0.5,
-			bobSpeed:     2.2,
-			phase:        2.4,
-		},
-		{
-			name:         "Vex",
-			anchor:       math32.Vector3{X: 0, Y: 4.0, Z: 30},
-			baseColor:    math32.Color{R: 0.44, G: 0.58, B: 0.98},
-			orbitRadius:  2.1,
-			orbitSpeed:   2.1,
-			bobAmplitude: 0.7,
-			bobSpeed:     2.8,
-			phase:        3.2,
-		},
-	}
-
-	for _, spec := range layout {
-		mat := material.NewStandard(&spec.baseColor)
-		mat.SetEmissiveColor(&math32.Color{R: spec.baseColor.R * 0.15, G: spec.baseColor.G * 0.15, B: spec.baseColor.B * 0.15})
-
-		mesh := graphic.NewMesh(targetGeom, mat)
-		mesh.SetName(spec.name)
-		g.scene.Add(mesh)
-
-		target := &targetDummy{
-			name:          spec.name,
-			mesh:          mesh,
-			bodyMaterial:  mat,
-			radius:        0.75,
-			anchor:        spec.anchor,
-			orbitRadius:   spec.orbitRadius,
-			orbitSpeed:    spec.orbitSpeed,
-			bobAmplitude:  spec.bobAmplitude,
-			bobSpeed:      spec.bobSpeed,
-			phase:         spec.phase,
-			health:        100,
-			alive:         true,
-			baseColor:     spec.baseColor,
-			emissiveColor: math32.Color{R: spec.baseColor.R * 0.15, G: spec.baseColor.G * 0.15, B: spec.baseColor.B * 0.15},
-			flashColor:    math32.Color{R: 1.0, G: 0.92, B: 0.7},
-			fraggedColor:  math32.Color{R: 0.3, G: 0.05, B: 0.05},
-		}
-		g.targets = append(g.targets, target)
-	}
-
-	g.updateTargets(0)
-}
-
-func (g *Game) updateTargets(delta time.Duration) {
-
-	seconds := float32(g.matchTime.Seconds())
-	for _, target := range g.targets {
-		if !target.alive {
-			target.respawnTimer -= delta
-			if target.respawnTimer <= 0 {
-				target.alive = true
-				target.health = 100
-				target.mesh.SetVisible(true)
-				target.bodyMaterial.SetColor(&target.baseColor)
-				target.bodyMaterial.SetEmissiveColor(&target.emissiveColor)
-			}
-			continue
-		}
-
-		if target.hitFlash > 0 {
-			target.hitFlash -= delta
-			target.bodyMaterial.SetColor(&target.flashColor)
-			target.bodyMaterial.SetEmissiveColor(&math32.Color{R: 0.5, G: 0.22, B: 0.08})
-		} else {
-			target.bodyMaterial.SetColor(&target.baseColor)
-			target.bodyMaterial.SetEmissiveColor(&target.emissiveColor)
-		}
-
-		orbit := seconds*target.orbitSpeed + target.phase
-		bob := math32.Sin(seconds*target.bobSpeed+target.phase) * target.bobAmplitude
-		pos := math32.Vector3{
-			X: target.anchor.X + math32.Cos(orbit)*target.orbitRadius,
-			Y: target.anchor.Y + bob,
-			Z: target.anchor.Z + math32.Sin(orbit)*target.orbitRadius,
-		}
-		target.lastWorldPos = pos
-		target.mesh.SetPositionVec(&pos)
-	}
-
-	if len(g.targets) == 0 {
-		g.setStatus("No targets configured", time.Second)
-		return
-	}
-
-	aliveCount := 0
-	for _, target := range g.targets {
-		if target.alive {
-			aliveCount++
-		}
-	}
-	if aliveCount == 0 {
-		g.setStatus(fmt.Sprintf("Wave cleared, %d frags banked", g.frags), 1100*time.Millisecond)
-	}
 }

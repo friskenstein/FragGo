@@ -47,7 +47,11 @@ type Game struct {
 	scene    *core.Node
 	camera   *camera.Camera
 
-	playerRoot *core.Node
+	playerRoot    *core.Node
+	phase         gamePhase
+	sessionMode   sessionMode
+	matchConfig   matchConfig
+	menuSelection int
 
 	playerPos      math32.Vector3
 	playerVelocity math32.Vector3
@@ -70,14 +74,17 @@ type Game struct {
 	statusText   string
 	statusTTL    time.Duration
 
-	platforms []platform
-	colliders []boxCollider
-	targets   []*targetDummy
+	platforms  []platform
+	colliders  []boxCollider
+	combatants []*combatant
 
-	infoLabel     *gui.Label
-	controlsLabel *gui.Label
-	crosshair     *gui.Label
-	statusLabel   *gui.Label
+	infoLabel      *gui.Label
+	controlsLabel  *gui.Label
+	crosshair      *gui.Label
+	statusLabel    *gui.Label
+	menuTitleLabel *gui.Label
+	menuBodyLabel  *gui.Label
+	rosterLabel    *gui.Label
 
 	cameraTrace *graphic.Lines
 	muzzleTrace *graphic.Lines
@@ -112,6 +119,7 @@ func New() (*Game, error) {
 	g.playerPos.Set(spawnX, spawnY, spawnZ)
 	g.playerGrounded = true
 	g.yaw = 0
+	g.configureMenuDefaults()
 
 	g.scene.Add(g.camera)
 	gui.Manager().Set(g.scene)
@@ -123,8 +131,8 @@ func New() (*Game, error) {
 	}
 	g.buildHUD()
 	g.buildEffects()
-	g.setStatus("Left click to lock in and start moving", 4*time.Second)
-	g.captureMouse()
+	g.releaseMouse()
+	g.setStatus("Configure a hosted match and press Enter", 5*time.Second)
 	g.onResize("", nil)
 	g.refreshHUD()
 
@@ -173,15 +181,6 @@ func (g *Game) subscribeEvents() {
 
 func (g *Game) update(delta time.Duration) {
 
-	g.matchTime += delta
-
-	if g.fireCooldown > 0 {
-		g.fireCooldown -= delta
-		if g.fireCooldown < 0 {
-			g.fireCooldown = 0
-		}
-	}
-
 	if g.statusTTL > 0 {
 		g.statusTTL -= delta
 		if g.statusTTL <= 0 {
@@ -190,12 +189,29 @@ func (g *Game) update(delta time.Duration) {
 		}
 	}
 
-	g.updatePlayer(float32(delta.Seconds()))
-	g.updateTargets(delta)
+	if g.phase == phaseMatch {
+		speedMultiplier := g.currentSpeedMultiplier()
+		gameDelta := scaleDuration(delta, speedMultiplier)
+		g.matchTime += gameDelta
+
+		if g.fireCooldown > 0 {
+			g.fireCooldown -= gameDelta
+			if g.fireCooldown < 0 {
+				g.fireCooldown = 0
+			}
+		}
+
+		g.updatePlayer(float32(gameDelta.Seconds()))
+		g.updateCombatants(gameDelta)
+		if g.matchTime >= g.matchConfig.RoundDuration {
+			g.endMatch()
+		}
+	}
+
 	g.updateCamera()
 	g.updateEffects(delta)
 
-	if g.fireQueued {
+	if g.phase == phaseMatch && g.fireQueued {
 		g.fireQueued = false
 		g.fireWeapon()
 	}
@@ -399,6 +415,14 @@ func (g *Game) resetPlayer() {
 
 func (g *Game) updateCamera() {
 
+	if g.phase != phaseMatch {
+		g.camera.SetFov(68)
+		g.camera.SetPosition(0, 19, 62)
+		g.camera.LookAt(&math32.Vector3{X: 0, Y: 4, Z: 0}, &math32.Vector3{Y: 1})
+		g.playerRoot.SetVisible(false)
+		return
+	}
+
 	headPos := g.playerHeadPosition()
 	viewDir := g.viewDirection()
 	g.camera.SetFov(74)
@@ -538,7 +562,7 @@ func (g *Game) onResize(string, interface{}) {
 func (g *Game) onCursor(_ string, ev interface{}) {
 
 	cursor := ev.(*window.CursorEvent)
-	if !g.mouseCaptured {
+	if g.phase != phaseMatch || !g.mouseCaptured {
 		g.cursorX = cursor.Xpos
 		g.cursorY = cursor.Ypos
 		g.cursorSeeded = true
@@ -563,6 +587,10 @@ func (g *Game) onCursor(_ string, ev interface{}) {
 
 func (g *Game) onMouseDown(_ string, ev interface{}) {
 
+	if g.phase != phaseMatch {
+		return
+	}
+
 	mouse := ev.(*window.MouseEvent)
 	switch mouse.Button {
 	case window.MouseButtonLeft:
@@ -578,6 +606,11 @@ func (g *Game) onMouseDown(_ string, ev interface{}) {
 func (g *Game) onKeyDown(_ string, ev interface{}) {
 
 	key := ev.(*window.KeyEvent)
+	if g.phase != phaseMatch {
+		g.handleMenuInput(key.Key)
+		return
+	}
+
 	switch key.Key {
 	case window.KeyEscape:
 		if g.mouseCaptured {
@@ -590,6 +623,8 @@ func (g *Game) onKeyDown(_ string, ev interface{}) {
 	case window.KeyR:
 		g.resetPlayer()
 		g.setStatus("Player reset", time.Second)
+	case window.KeyF2:
+		g.endMatch()
 	}
 }
 

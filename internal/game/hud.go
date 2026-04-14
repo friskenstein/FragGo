@@ -2,6 +2,7 @@ package game
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/g3n/engine/gui"
 	"github.com/g3n/engine/math32"
@@ -28,27 +29,65 @@ func (g *Game) buildHUD() {
 	g.statusLabel.SetFontSize(22)
 	g.statusLabel.SetColor(&math32.Color{R: 1.0, G: 0.88, B: 0.55})
 	g.scene.Add(g.statusLabel)
+
+	g.menuTitleLabel = gui.NewLabel("")
+	g.menuTitleLabel.SetFontSize(34)
+	g.menuTitleLabel.SetColor(&math32.Color{R: 0.97, G: 0.98, B: 1.0})
+	g.scene.Add(g.menuTitleLabel)
+
+	g.menuBodyLabel = gui.NewLabel("")
+	g.menuBodyLabel.SetFontSize(22)
+	g.menuBodyLabel.SetColor(&math32.Color{R: 0.87, G: 0.91, B: 0.98})
+	g.scene.Add(g.menuBodyLabel)
+
+	g.rosterLabel = gui.NewLabel("")
+	g.rosterLabel.SetFontSize(18)
+	g.rosterLabel.SetColor(&math32.Color{R: 0.79, G: 0.84, B: 0.92})
+	g.scene.Add(g.rosterLabel)
 }
 
 func (g *Game) refreshHUD() {
 
-	accuracy := 0.0
-	if g.shotsFired > 0 {
-		accuracy = float64(g.shotsHit) * 100 / float64(g.shotsFired)
-	}
+	if g.phase != phaseMatch {
+		g.infoLabel.SetText("")
+		g.crosshair.SetText("")
+		g.menuTitleLabel.SetText(g.menuTitle())
+		g.menuBodyLabel.SetText(g.menuBody())
+		g.rosterLabel.SetText(g.rosterPreview())
+		g.controlsLabel.SetText(g.menuControls())
+	} else {
+		g.menuTitleLabel.SetText("")
+		g.menuBodyLabel.SetText("")
+		g.rosterLabel.SetText("")
+		g.crosshair.SetText("+")
 
-	height := "ground"
-	if g.playerPos.Y > 0.1 {
-		height = fmt.Sprintf("%.1fm", g.playerPos.Y)
-	}
+		accuracy := 0.0
+		if g.shotsFired > 0 {
+			accuracy = float64(g.shotsHit) * 100 / float64(g.shotsFired)
+		}
 
-	g.infoLabel.SetText(fmt.Sprintf(
-		"Prototype Arena\nFrags: %d  Accuracy: %.0f%%\nHeight: %s  Velocity: %.1f",
-		g.frags,
-		accuracy,
-		height,
-		g.playerVelocity.Length(),
-	))
+		height := "ground"
+		if g.playerPos.Y > 0.1 {
+			height = fmt.Sprintf("%.1fm", g.playerPos.Y)
+		}
+
+		timeLeft := g.matchConfig.RoundDuration - g.matchTime
+		if timeLeft < 0 {
+			timeLeft = 0
+		}
+
+		g.infoLabel.SetText(fmt.Sprintf(
+			"Hosted Match\nTime Left: %s  Speed: %.2fx  Seats: %d\nFrags: %d  Accuracy: %.0f%%  Velocity: %.1f  Height: %s",
+			formatClock(timeLeft),
+			g.currentSpeedMultiplier(),
+			g.matchConfig.PlayerSlots,
+			g.frags,
+			accuracy,
+			g.playerVelocity.Length(),
+			height,
+		))
+		g.controlsLabel.SetText("WASD move  Space jump  Shift boost  LMB fire  Esc release mouse  F2 lobby  R reset")
+	}
 
 	if g.statusText == "" {
 		g.statusLabel.SetText("")
@@ -67,7 +106,18 @@ func (g *Game) layoutHUD(width, height float32) {
 	}
 
 	g.infoLabel.SetPosition(24, 22)
+	g.menuTitleLabel.SetPosition(width*0.5-g.menuTitleLabel.Width()*0.5, 70)
+	g.menuBodyLabel.SetPosition(110, 180)
+	g.rosterLabel.SetPosition(width-350, 190)
 	g.controlsLabel.SetPosition(24, height-g.controlsLabel.Height()-24)
 	g.crosshair.SetPosition(width*0.5-g.crosshair.Width()*0.5, height*0.5-g.crosshair.Height()*0.62)
 	g.statusLabel.SetPosition(width*0.5-g.statusLabel.Width()*0.5, 28)
+}
+
+func formatClock(remaining time.Duration) string {
+
+	totalSeconds := int(remaining.Seconds())
+	minutes := totalSeconds / 60
+	seconds := totalSeconds % 60
+	return fmt.Sprintf("%02d:%02d", minutes, seconds)
 }
