@@ -39,9 +39,7 @@ type Game struct {
 	scene    *core.Node
 	camera   *camera.Camera
 
-	playerRoot   *core.Node
-	playerBody   *graphic.Mesh
-	playerAccent *graphic.Mesh
+	playerRoot *core.Node
 
 	playerPos      math32.Vector3
 	playerVelocity math32.Vector3
@@ -111,7 +109,10 @@ func New() (*Game, error) {
 	gui.Manager().Set(g.scene)
 
 	g.subscribeEvents()
-	g.buildWorld()
+	if err := g.buildWorld(); err != nil {
+		g.shutdown()
+		return nil, err
+	}
 	g.buildHUD()
 	g.buildEffects()
 	g.setStatus("Left click to lock in and start moving", 4*time.Second)

@@ -2,14 +2,23 @@ package game
 
 import (
 	"fmt"
+	"path/filepath"
+	"runtime"
 	"time"
 
 	"github.com/g3n/engine/core"
 	"github.com/g3n/engine/geometry"
 	"github.com/g3n/engine/graphic"
 	"github.com/g3n/engine/light"
+	objloader "github.com/g3n/engine/loader/obj"
 	"github.com/g3n/engine/material"
 	"github.com/g3n/engine/math32"
+)
+
+const (
+	playerModelScale       = 2.1
+	playerModelGroundLift  = 1.055
+	playerModelCenterShift = 0.024
 )
 
 type platform struct {
@@ -80,7 +89,7 @@ func (t *targetDummy) applyDamage(amount int) bool {
 	return true
 }
 
-func (g *Game) buildWorld() {
+func (g *Game) buildWorld() error {
 
 	g.scene.Add(light.NewAmbient(&math32.Color{R: 0.8, G: 0.85, B: 1.0}, 0.45))
 
@@ -94,8 +103,11 @@ func (g *Game) buildWorld() {
 	g.scene.Add(fillLight)
 
 	g.buildArenaGeometry()
-	g.buildPlayerModel()
+	if err := g.buildPlayerModel(); err != nil {
+		return err
+	}
 	g.spawnTargets()
+	return nil
 }
 
 func (g *Game) buildArenaGeometry() {
@@ -171,113 +183,49 @@ func (g *Game) buildArenaGeometry() {
 	}
 }
 
-func (g *Game) buildPlayerModel() {
+func (g *Game) buildPlayerModel() error {
 
 	g.playerRoot = core.NewNode()
+	playerAssetPath, err := playerModelPath()
+	if err != nil {
+		return err
+	}
 
-	furMat := material.NewStandard(&math32.Color{R: 0.54, G: 0.8, B: 0.98})
-	furMat.SetEmissiveColor(&math32.Color{R: 0.06, G: 0.1, B: 0.12})
-	bellyMat := material.NewStandard(&math32.Color{R: 0.89, G: 0.94, B: 0.99})
-	bellyMat.SetEmissiveColor(&math32.Color{R: 0.05, G: 0.06, B: 0.08})
-	eyeMat := material.NewStandard(&math32.Color{R: 1.0, G: 1.0, B: 1.0})
-	eyeMat.SetEmissiveColor(&math32.Color{R: 0.15, G: 0.15, B: 0.15})
-	pupilMat := material.NewStandard(&math32.Color{R: 0.07, G: 0.08, B: 0.11})
-	pupilMat.SetEmissiveColor(&math32.Color{R: 0.02, G: 0.02, B: 0.03})
-	noseMat := material.NewStandard(&math32.Color{R: 0.39, G: 0.2, B: 0.16})
-	noseMat.SetEmissiveColor(&math32.Color{R: 0.07, G: 0.03, B: 0.02})
-	toothMat := material.NewStandard(&math32.Color{R: 0.98, G: 0.96, B: 0.9})
-	toothMat.SetEmissiveColor(&math32.Color{R: 0.08, G: 0.08, B: 0.06})
-	accentMat := material.NewStandard(&math32.Color{R: 0.96, G: 0.36, B: 0.22})
-	accentMat.SetEmissiveColor(&math32.Color{R: 0.15, G: 0.05, B: 0.03})
+	decoder, err := objloader.Decode(playerAssetPath, "")
+	if err != nil {
+		return err
+	}
 
-	g.playerBody = graphic.NewMesh(geometry.NewSphere(0.72, 18, 14), furMat)
-	g.playerBody.SetPosition(0, 0.78, 0)
-	g.playerRoot.Add(g.playerBody)
+	playerModel, err := decoder.NewGroup()
+	if err != nil {
+		return err
+	}
 
-	head := graphic.NewMesh(geometry.NewSphere(0.52, 18, 14), furMat)
-	head.SetPosition(0, 1.55, 0.08)
-	g.playerRoot.Add(head)
-
-	leftEar := graphic.NewMesh(geometry.NewCylinder(0.16, 0.46, 14, 1, true, true), furMat)
-	leftEar.SetRotation(0, 0, 0.28)
-	leftEar.SetPosition(-0.24, 2.0, 0.02)
-	g.playerRoot.Add(leftEar)
-
-	rightEar := graphic.NewMesh(geometry.NewCylinder(0.16, 0.46, 14, 1, true, true), furMat)
-	rightEar.SetRotation(0, 0, -0.28)
-	rightEar.SetPosition(0.24, 2.0, 0.02)
-	g.playerRoot.Add(rightEar)
-
-	belly := graphic.NewMesh(geometry.NewSphere(0.42, 14, 12), bellyMat)
-	belly.SetScale(0.85, 1.05, 0.55)
-	belly.SetPosition(0, 0.7, 0.42)
-	g.playerRoot.Add(belly)
-
-	leftEye := graphic.NewMesh(geometry.NewSphere(0.16, 12, 10), eyeMat)
-	leftEye.SetScale(0.95, 1.2, 0.45)
-	leftEye.SetPosition(-0.19, 1.72, 0.42)
-	g.playerRoot.Add(leftEye)
-
-	rightEye := graphic.NewMesh(geometry.NewSphere(0.16, 12, 10), eyeMat)
-	rightEye.SetScale(0.95, 1.2, 0.45)
-	rightEye.SetPosition(0.19, 1.72, 0.42)
-	g.playerRoot.Add(rightEye)
-
-	leftPupil := graphic.NewMesh(geometry.NewSphere(0.055, 10, 8), pupilMat)
-	leftPupil.SetPosition(-0.19, 1.69, 0.56)
-	g.playerRoot.Add(leftPupil)
-
-	rightPupil := graphic.NewMesh(geometry.NewSphere(0.055, 10, 8), pupilMat)
-	rightPupil.SetPosition(0.19, 1.69, 0.56)
-	g.playerRoot.Add(rightPupil)
-
-	nose := graphic.NewMesh(geometry.NewSphere(0.08, 10, 8), noseMat)
-	nose.SetScale(1.0, 0.78, 1.25)
-	nose.SetPosition(0, 1.5, 0.57)
-	g.playerRoot.Add(nose)
-
-	leftTooth := graphic.NewMesh(geometry.NewBox(0.08, 0.16, 0.06), toothMat)
-	leftTooth.SetPosition(-0.05, 1.28, 0.57)
-	g.playerRoot.Add(leftTooth)
-
-	rightTooth := graphic.NewMesh(geometry.NewBox(0.08, 0.16, 0.06), toothMat)
-	rightTooth.SetPosition(0.05, 1.28, 0.57)
-	g.playerRoot.Add(rightTooth)
-
-	leftArm := graphic.NewMesh(geometry.NewCylinder(0.1, 0.72, 10, 1, true, true), furMat)
-	leftArm.SetRotation(0, 0, -0.65)
-	leftArm.SetPosition(-0.55, 0.9, 0.12)
-	g.playerRoot.Add(leftArm)
-
-	rightArm := graphic.NewMesh(geometry.NewCylinder(0.1, 0.72, 10, 1, true, true), furMat)
-	rightArm.SetRotation(0, 0, 0.65)
-	rightArm.SetPosition(0.55, 0.9, 0.12)
-	g.playerRoot.Add(rightArm)
-
-	leftFoot := graphic.NewMesh(geometry.NewSphere(0.16, 12, 10), accentMat)
-	leftFoot.SetScale(1.3, 0.6, 1.65)
-	leftFoot.SetPosition(-0.22, 0.08, 0.16)
-	g.playerRoot.Add(leftFoot)
-
-	rightFoot := graphic.NewMesh(geometry.NewSphere(0.16, 12, 10), accentMat)
-	rightFoot.SetScale(1.3, 0.6, 1.65)
-	rightFoot.SetPosition(0.22, 0.08, 0.16)
-	g.playerRoot.Add(rightFoot)
-
-	g.playerAccent = graphic.NewMesh(geometry.NewBox(0.16, 0.58, 0.94), accentMat)
-	g.playerAccent.SetRotation(-0.18, 0, 0)
-	g.playerAccent.SetPosition(0.38, 1.0, 0.54)
-	g.playerRoot.Add(g.playerAccent)
+	playerModel.SetName("player-model")
+	playerModel.SetScale(playerModelScale, playerModelScale, playerModelScale)
+	playerModel.SetPosition(playerModelCenterShift, playerModelGroundLift, 0)
+	g.playerRoot.Add(playerModel)
 
 	g.scene.Add(g.playerRoot)
 	g.syncPlayerModel()
+	return nil
 }
 
 func (g *Game) syncPlayerModel() {
 
 	g.playerRoot.SetPosition(g.playerPos.X, g.playerPos.Y, g.playerPos.Z)
-	// The mesh is authored facing +Z, while camera forward at yaw 0 points toward -Z.
-	g.playerRoot.SetRotation(0, math32.Pi-g.yaw, 0)
+	// The gopher OBJ is authored facing +X, while camera forward at yaw 0 points toward -Z.
+	g.playerRoot.SetRotation(0, math32.Pi/2-g.yaw, 0)
+}
+
+func playerModelPath() (string, error) {
+
+	_, currentFile, _, ok := runtime.Caller(0)
+	if !ok {
+		return "", fmt.Errorf("resolve player model path: runtime caller unavailable")
+	}
+
+	return filepath.Clean(filepath.Join(filepath.Dir(currentFile), "..", "..", "assets", "gopher", "gopher.obj")), nil
 }
 
 func (g *Game) spawnTargets() {
