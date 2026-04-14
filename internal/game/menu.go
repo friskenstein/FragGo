@@ -41,6 +41,14 @@ func (g *Game) handleMenuInput(key window.Key) {
 	}
 }
 
+func (g *Game) handleResultsInput(key window.Key) {
+
+	switch key {
+	case window.KeyEnter, window.KeyEscape:
+		g.returnToMenu("Back in host lobby")
+	}
+}
+
 func (g *Game) adjustMenuSetting(direction int) {
 
 	switch g.menuSelection {
@@ -109,9 +117,9 @@ func (g *Game) activateMenuSelection() {
 func (g *Game) menuTitle() string {
 
 	if g.sessionMode == sessionModeJoin {
-		return "FragGo Main Menu\nJoin Flow"
+		return "Join Flow"
 	}
-	return "FragGo Main Menu\nHost Lobby"
+	return "Host Lobby"
 }
 
 func (g *Game) menuBody() string {

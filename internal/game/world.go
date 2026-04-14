@@ -296,10 +296,21 @@ func (g *Game) syncPlayerModel() {
 
 func playerModelPath() (string, error) {
 
+	return assetPath("gopher", "gopher.obj")
+}
+
+func fragGoLogoPath() (string, error) {
+
+	return assetPath("fraggo_logo.png")
+}
+
+func assetPath(parts ...string) (string, error) {
+
 	_, currentFile, _, ok := runtime.Caller(0)
 	if !ok {
-		return "", fmt.Errorf("resolve player model path: runtime caller unavailable")
+		return "", fmt.Errorf("resolve asset path: runtime caller unavailable")
 	}
 
-	return filepath.Clean(filepath.Join(filepath.Dir(currentFile), "..", "..", "assets", "gopher", "gopher.obj")), nil
+	segments := append([]string{filepath.Dir(currentFile), "..", "..", "assets"}, parts...)
+	return filepath.Clean(filepath.Join(segments...)), nil
 }

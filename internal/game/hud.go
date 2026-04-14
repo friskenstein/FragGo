@@ -30,8 +30,22 @@ func (g *Game) buildHUD() {
 	g.statusLabel.SetColor(&math32.Color{R: 1.0, G: 0.88, B: 0.55})
 	g.scene.Add(g.statusLabel)
 
+	logoPath, err := fragGoLogoPath()
+	if err == nil {
+		g.logoImage, err = gui.NewImage(logoPath)
+		if err == nil {
+			if g.logoImage.Height() > 0 {
+				g.logoAspect = g.logoImage.Width() / g.logoImage.Height()
+			}
+			if g.logoAspect <= 0 {
+				g.logoAspect = 3
+			}
+			g.scene.Add(g.logoImage)
+		}
+	}
+
 	g.menuTitleLabel = gui.NewLabel("")
-	g.menuTitleLabel.SetFontSize(34)
+	g.menuTitleLabel.SetFontSize(24)
 	g.menuTitleLabel.SetColor(&math32.Color{R: 0.97, G: 0.98, B: 1.0})
 	g.scene.Add(g.menuTitleLabel)
 
@@ -51,11 +65,25 @@ func (g *Game) refreshHUD() {
 	if g.phase != phaseMatch {
 		g.infoLabel.SetText("")
 		g.crosshair.SetText("")
-		g.menuTitleLabel.SetText(g.menuTitle())
-		g.menuBodyLabel.SetText(g.menuBody())
-		g.rosterLabel.SetText(g.rosterPreview())
-		g.controlsLabel.SetText(g.menuControls())
+		if g.logoImage != nil {
+			g.logoImage.SetVisible(true)
+		}
+
+		if g.phase == phaseResults {
+			g.menuTitleLabel.SetText(g.resultsTitle())
+			g.menuBodyLabel.SetText(g.resultsSummary())
+			g.rosterLabel.SetText(g.resultsScoreboard())
+			g.controlsLabel.SetText("Enter or Esc return to host lobby")
+		} else {
+			g.menuTitleLabel.SetText(g.menuTitle())
+			g.menuBodyLabel.SetText(g.menuBody())
+			g.rosterLabel.SetText(g.rosterPreview())
+			g.controlsLabel.SetText(g.menuControls())
+		}
 	} else {
+		if g.logoImage != nil {
+			g.logoImage.SetVisible(false)
+		}
 		g.menuTitleLabel.SetText("")
 		g.menuBodyLabel.SetText("")
 		g.rosterLabel.SetText("")
@@ -71,7 +99,7 @@ func (g *Game) refreshHUD() {
 			height = fmt.Sprintf("%.1fm", g.playerPos.Y)
 		}
 
-		timeLeft := g.matchConfig.RoundDuration - g.matchTime
+		timeLeft := g.matchConfig.RoundDuration - g.roundElapsed
 		if timeLeft < 0 {
 			timeLeft = 0
 		}
@@ -106,9 +134,22 @@ func (g *Game) layoutHUD(width, height float32) {
 	}
 
 	g.infoLabel.SetPosition(24, 22)
-	g.menuTitleLabel.SetPosition(width*0.5-g.menuTitleLabel.Width()*0.5, 70)
-	g.menuBodyLabel.SetPosition(110, 180)
-	g.rosterLabel.SetPosition(width-350, 190)
+	if g.logoImage != nil {
+		logoWidth := float32(420)
+		maxWidth := width * 0.34
+		if maxWidth < logoWidth {
+			logoWidth = maxWidth
+		}
+		if logoWidth < 220 {
+			logoWidth = 220
+		}
+		logoHeight := logoWidth / g.logoAspect
+		g.logoImage.SetSize(logoWidth, logoHeight)
+		g.logoImage.SetPosition(width*0.5-g.logoImage.Width()*0.5, 36)
+	}
+	g.menuTitleLabel.SetPosition(width*0.5-g.menuTitleLabel.Width()*0.5, 182)
+	g.menuBodyLabel.SetPosition(110, 240)
+	g.rosterLabel.SetPosition(width-430, 240)
 	g.controlsLabel.SetPosition(24, height-g.controlsLabel.Height()-24)
 	g.crosshair.SetPosition(width*0.5-g.crosshair.Width()*0.5, height*0.5-g.crosshair.Height()*0.62)
 	g.statusLabel.SetPosition(width*0.5-g.statusLabel.Width()*0.5, 28)

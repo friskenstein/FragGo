@@ -65,14 +65,17 @@ type Game struct {
 	cursorX       float32
 	cursorY       float32
 
-	fireQueued   bool
-	fireCooldown time.Duration
-	matchTime    time.Duration
-	frags        int
-	shotsFired   int
-	shotsHit     int
-	statusText   string
-	statusTTL    time.Duration
+	fireQueued      bool
+	fireCooldown    time.Duration
+	matchTime       time.Duration
+	roundElapsed    time.Duration
+	frags           int
+	playerDeaths    int
+	shotsFired      int
+	shotsHit        int
+	statusText      string
+	statusTTL       time.Duration
+	menuCameraAngle float32
 
 	platforms  []platform
 	colliders  []boxCollider
@@ -82,6 +85,8 @@ type Game struct {
 	controlsLabel  *gui.Label
 	crosshair      *gui.Label
 	statusLabel    *gui.Label
+	logoImage      *gui.Image
+	logoAspect     float32
 	menuTitleLabel *gui.Label
 	menuBodyLabel  *gui.Label
 	rosterLabel    *gui.Label
@@ -190,6 +195,7 @@ func (g *Game) update(delta time.Duration) {
 	}
 
 	if g.phase == phaseMatch {
+		g.roundElapsed += delta
 		speedMultiplier := g.currentSpeedMultiplier()
 		gameDelta := scaleDuration(delta, speedMultiplier)
 		g.matchTime += gameDelta
@@ -203,9 +209,11 @@ func (g *Game) update(delta time.Duration) {
 
 		g.updatePlayer(float32(gameDelta.Seconds()))
 		g.updateCombatants(gameDelta)
-		if g.matchTime >= g.matchConfig.RoundDuration {
+		if g.roundElapsed >= g.matchConfig.RoundDuration {
 			g.endMatch()
 		}
+	} else {
+		g.menuCameraAngle += float32(delta.Seconds()) * 0.18
 	}
 
 	g.updateCamera()
@@ -291,6 +299,7 @@ func (g *Game) updatePlayer(dt float32) {
 	}
 
 	if g.playerPos.Y < -10 {
+		g.playerDeaths++
 		g.resetPlayer()
 		g.setStatus("Respawned at south spawn", 2*time.Second)
 	}
@@ -416,8 +425,14 @@ func (g *Game) resetPlayer() {
 func (g *Game) updateCamera() {
 
 	if g.phase != phaseMatch {
+		radius := float32(66)
+		camPos := math32.Vector3{
+			X: math32.Cos(g.menuCameraAngle) * radius,
+			Y: 20 + math32.Sin(g.menuCameraAngle*0.55)*4,
+			Z: math32.Sin(g.menuCameraAngle) * radius,
+		}
 		g.camera.SetFov(68)
-		g.camera.SetPosition(0, 19, 62)
+		g.camera.SetPosition(camPos.X, camPos.Y, camPos.Z)
 		g.camera.LookAt(&math32.Vector3{X: 0, Y: 4, Z: 0}, &math32.Vector3{Y: 1})
 		g.playerRoot.SetVisible(false)
 		return
@@ -606,6 +621,10 @@ func (g *Game) onMouseDown(_ string, ev interface{}) {
 func (g *Game) onKeyDown(_ string, ev interface{}) {
 
 	key := ev.(*window.KeyEvent)
+	if g.phase == phaseResults {
+		g.handleResultsInput(key.Key)
+		return
+	}
 	if g.phase != phaseMatch {
 		g.handleMenuInput(key.Key)
 		return
@@ -624,7 +643,7 @@ func (g *Game) onKeyDown(_ string, ev interface{}) {
 		g.resetPlayer()
 		g.setStatus("Player reset", time.Second)
 	case window.KeyF2:
-		g.endMatch()
+		g.returnToMenu("Match abandoned")
 	}
 }
 

@@ -2,6 +2,8 @@ package game
 
 import (
 	"fmt"
+	"sort"
+	"strings"
 	"time"
 
 	"github.com/g3n/engine/core"
@@ -13,6 +15,7 @@ type gamePhase int
 const (
 	phaseMenu gamePhase = iota
 	phaseMatch
+	phaseResults
 )
 
 type sessionMode int
@@ -45,6 +48,7 @@ type combatant struct {
 	moveSpeed    float32
 	phase        float32
 	score        int
+	deaths       int
 }
 
 var combatantSpawnPoints = []math32.Vector3{
@@ -86,6 +90,7 @@ func (c *combatant) applyDamage(amount int) bool {
 
 	c.health = 0
 	c.alive = false
+	c.deaths++
 	c.respawnTimer = 1600 * time.Millisecond
 	if c.root != nil {
 		c.root.SetVisible(false)
@@ -107,7 +112,7 @@ func (g *Game) currentSpeedMultiplier() float32 {
 		return g.matchConfig.EndSpeed
 	}
 
-	progress := math32.Clamp(float32(g.matchTime)/float32(g.matchConfig.RoundDuration), 0, 1)
+	progress := math32.Clamp(float32(g.roundElapsed)/float32(g.matchConfig.RoundDuration), 0, 1)
 	return g.matchConfig.StartSpeed + (g.matchConfig.EndSpeed-g.matchConfig.StartSpeed)*progress
 }
 
@@ -177,7 +182,9 @@ func (g *Game) spawnCombatants() error {
 func (g *Game) startHostedMatch() error {
 
 	g.matchTime = 0
+	g.roundElapsed = 0
 	g.frags = 0
+	g.playerDeaths = 0
 	g.shotsFired = 0
 	g.shotsHit = 0
 	g.fireCooldown = 0
@@ -196,10 +203,19 @@ func (g *Game) startHostedMatch() error {
 
 func (g *Game) endMatch() {
 
+	g.phase = phaseResults
+	g.releaseMouse()
+	g.setStatus(fmt.Sprintf("Round complete: %d frags", g.frags), 3*time.Second)
+}
+
+func (g *Game) returnToMenu(status string) {
+
 	g.phase = phaseMenu
 	g.releaseMouse()
 	g.clearCombatants()
-	g.setStatus(fmt.Sprintf("Round complete: %d frags", g.frags), 3*time.Second)
+	if status != "" {
+		g.setStatus(status, 2*time.Second)
+	}
 }
 
 func (g *Game) updateCombatants(delta time.Duration) {
@@ -229,4 +245,76 @@ func (g *Game) updateCombatants(delta time.Duration) {
 		combatant.root.SetPositionVec(&combatant.positionVec)
 		combatant.root.SetRotation(0, math32.Pi/2-combatant.yaw, 0)
 	}
+}
+
+func (g *Game) resultsTitle() string {
+
+	return "Round Results"
+}
+
+func (g *Game) resultsSummary() string {
+
+	timeLabel := formatClock(g.matchConfig.RoundDuration)
+	if g.roundElapsed > 0 && g.roundElapsed < g.matchConfig.RoundDuration {
+		timeLabel = formatClock(g.roundElapsed)
+	}
+
+	return fmt.Sprintf(
+		"Hosted Match Complete\nDuration: %s  Final Speed: %.2fx\nYour Accuracy: %.0f%%  Press Enter to return to lobby",
+		timeLabel,
+		g.currentSpeedMultiplier(),
+		g.localAccuracy(),
+	)
+}
+
+func (g *Game) resultsScoreboard() string {
+
+	type resultRow struct {
+		name     string
+		score    int
+		deaths   int
+		accuracy string
+	}
+
+	rows := []resultRow{
+		{
+			name:     "You",
+			score:    g.frags,
+			deaths:   g.playerDeaths,
+			accuracy: fmt.Sprintf("%.0f%%", g.localAccuracy()),
+		},
+	}
+
+	for _, combatant := range g.combatants {
+		rows = append(rows, resultRow{
+			name:     combatant.name,
+			score:    combatant.score,
+			deaths:   combatant.deaths,
+			accuracy: "-",
+		})
+	}
+
+	sort.Slice(rows, func(i, j int) bool {
+		if rows[i].score != rows[j].score {
+			return rows[i].score > rows[j].score
+		}
+		if rows[i].deaths != rows[j].deaths {
+			return rows[i].deaths < rows[j].deaths
+		}
+		return rows[i].name < rows[j].name
+	})
+
+	lines := []string{"Player           Frags  Deaths  Accuracy"}
+	for _, row := range rows {
+		lines = append(lines, fmt.Sprintf("%-15s %5d  %6d  %s", row.name, row.score, row.deaths, row.accuracy))
+	}
+	return strings.Join(lines, "\n")
+}
+
+func (g *Game) localAccuracy() float64 {
+
+	if g.shotsFired == 0 {
+		return 0
+	}
+	return float64(g.shotsHit) * 100 / float64(g.shotsFired)
 }
