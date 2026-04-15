@@ -17,3 +17,7 @@ Its main hook is **Mayhem Mode**. As the deathmatch progresses, the overall game
 ```bash
 GOTOOLCHAIN=auto go run ./cmd/go3d
 ```
+
+## Dependencies
+
+see [G3n Engine Dependencies](https://github.com/g3n/engine?tab=readme-ov-file#dependencies)
