@@ -118,6 +118,50 @@ func TestResolveGroundPrefersReachableSupportBelowOverOverheadWalkway(t *testing
 	}
 }
 
+func TestResolveCameraPositionUsesDesiredPositionWhenUnblocked(t *testing.T) {
+
+	g := Game{}
+	headPos := math32.Vector3{X: 0, Y: 1, Z: 0}
+	desiredCamPos := math32.Vector3{X: 0, Y: 3, Z: -6}
+
+	got, distance := g.resolveCameraPosition(headPos, desiredCamPos)
+	if got.DistanceTo(&desiredCamPos) > 0.0001 {
+		t.Fatalf("expected desired camera position, got %+v", got)
+	}
+	if math32.Abs(distance-headPos.DistanceTo(&desiredCamPos)) > 0.0001 {
+		t.Fatalf("expected desired camera distance, got %.3f", distance)
+	}
+}
+
+func TestResolveCameraPositionPullsInFrontOfBlockingGeometry(t *testing.T) {
+
+	g := Game{
+		arenaCollision: testCollisionMesh(
+			testQuad(
+				"camera-wall",
+				math32.Vector3{X: -2, Y: 0, Z: -3},
+				math32.Vector3{X: 2, Y: 0, Z: -3},
+				math32.Vector3{X: 2, Y: 4, Z: -3},
+				math32.Vector3{X: -2, Y: 4, Z: -3},
+			)...,
+		),
+	}
+	headPos := math32.Vector3{X: 0, Y: 1, Z: 0}
+	desiredCamPos := math32.Vector3{X: 0, Y: 1, Z: -6}
+
+	got, distance := g.resolveCameraPosition(headPos, desiredCamPos)
+	expectedDistance := float32(3 - cameraCollisionClearance)
+	expectedZ := -expectedDistance
+	expectedY := headPos.Y + cameraCollisionProbeHeight
+
+	if math32.Abs(distance-expectedDistance) > 0.0001 {
+		t.Fatalf("expected camera distance %.3f, got %.3f", expectedDistance, distance)
+	}
+	if math32.Abs(got.Z-expectedZ) > 0.0001 || math32.Abs(got.Y-expectedY) > 0.0001 {
+		t.Fatalf("expected camera at y %.3f z %.3f, got %+v", expectedY, expectedZ, got)
+	}
+}
+
 func testCollisionMesh(triangles ...collisionTriangle) *meshCollision {
 
 	mesh := &meshCollision{

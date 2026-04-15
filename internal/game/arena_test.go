@@ -4,8 +4,8 @@ import "testing"
 
 func TestArenaScaleForIDUsesOverrides(t *testing.T) {
 
-	if got := arenaScaleForID("dust2"); got != 2.0 {
-		t.Fatalf("expected dust2 scale override of 2.0, got %.2f", got)
+	if got := arenaScaleForID("dust2"); got != 4.0 {
+		t.Fatalf("expected dust2 scale override of 4.0, got %.2f", got)
 	}
 
 	if got := arenaScaleForID("arena"); got != 1.0 {

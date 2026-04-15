@@ -18,7 +18,7 @@ type arenaDefinition struct {
 var arenaScaleByID = map[string]float32{
 	"arena":    1.0,
 	"blockout": 1.0,
-	"dust2":    2.0,
+	"dust2":    4.0,
 	"turbine":  1.0,
 }
 

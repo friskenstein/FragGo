@@ -36,6 +36,12 @@ const (
 	groundSnapHeight = 0.35
 	collisionEpsilon = 0.01
 	groundProbeLift  = 1.4
+
+	thirdPersonCameraDistance  = 6.5
+	thirdPersonCameraLift      = 2.25
+	cameraCollisionClearance   = 0.35
+	cameraHidePlayerDistance   = 1.25
+	cameraCollisionProbeHeight = 0.2
 )
 
 type Game struct {
@@ -521,18 +527,47 @@ func (g *Game) updateCamera() {
 	viewDir := g.viewDirection()
 	g.camera.SetFov(74)
 
-	backOffset := viewDir.Clone().MultiplyScalar(-6.5)
-	backOffset.Y += 2.25
+	backOffset := viewDir.Clone().MultiplyScalar(-thirdPersonCameraDistance)
+	backOffset.Y += thirdPersonCameraLift
 
-	camPos := headPos
-	camPos.Add(backOffset)
+	desiredCamPos := headPos
+	desiredCamPos.Add(backOffset)
+	camPos, cameraDistance := g.resolveCameraPosition(headPos, desiredCamPos)
 
 	aimPoint := camPos
 	aimPoint.Add(viewDir.Clone().MultiplyScalar(weaponRange))
 
 	g.camera.SetPosition(camPos.X, camPos.Y, camPos.Z)
 	g.camera.LookAt(&aimPoint, &math32.Vector3{Y: 1})
-	g.playerRoot.SetVisible(true)
+	g.playerRoot.SetVisible(cameraDistance > cameraHidePlayerDistance)
+}
+
+func (g *Game) resolveCameraPosition(headPos, desiredCamPos math32.Vector3) (math32.Vector3, float32) {
+
+	offset := desiredCamPos
+	offset.Sub(&headPos)
+	desiredDistance := offset.Length()
+	if g.arenaCollision == nil || desiredDistance <= 0.001 {
+		return desiredCamPos, desiredDistance
+	}
+
+	direction := offset.Clone().Normalize()
+	probeOrigin := headPos
+	probeOrigin.Y += cameraCollisionProbeHeight
+
+	hit, ok := g.arenaCollision.raycast(probeOrigin, *direction, desiredDistance, nil)
+	if !ok {
+		return desiredCamPos, desiredDistance
+	}
+
+	distance := hit.distance - cameraCollisionClearance
+	if distance < 0 {
+		distance = 0
+	}
+
+	camPos := probeOrigin
+	camPos.Add(direction.MultiplyScalar(distance))
+	return camPos, distance
 }
 
 func (g *Game) render() {
