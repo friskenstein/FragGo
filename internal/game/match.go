@@ -196,11 +196,13 @@ func (g *Game) startHostedMatch() error {
 	g.shotsHit = 0
 	g.fireCooldown = 0
 	g.fireQueued = false
+	g.resetWeaponLoadout()
 
 	g.resetPlayer()
 	if err := g.spawnCombatants(); err != nil {
 		return err
 	}
+	g.spawnWeaponPickups()
 
 	g.phase = phaseMatch
 	g.captureMouse()
@@ -212,6 +214,7 @@ func (g *Game) endMatch() {
 
 	g.phase = phaseResults
 	g.releaseMouse()
+	g.clearWeaponPickups()
 	g.setStatus(fmt.Sprintf("Round complete: %d frags", g.frags), 3*time.Second)
 }
 
@@ -220,6 +223,7 @@ func (g *Game) returnToMenu(status string) {
 	g.phase = phaseMenu
 	g.releaseMouse()
 	g.clearCombatants()
+	g.clearWeaponPickups()
 	if status != "" {
 		g.setStatus(status, 2*time.Second)
 	}

@@ -246,6 +246,7 @@ func (g *Game) buildPlayerModel() error {
 	g.playerRoot = root
 
 	g.scene.Add(g.playerRoot)
+	g.buildCarriedWeaponModels()
 	g.syncPlayerModel()
 	return nil
 }

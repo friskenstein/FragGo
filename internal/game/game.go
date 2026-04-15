@@ -25,8 +25,6 @@ const (
 	moveSpeed        = 16.0
 	boostSpeed       = 22.0
 	airControl       = 5.0
-	weaponDamage     = 34
-	weaponRange      = 90.0
 	playerRadius     = 0.6
 	playerHeight     = 1.8
 	playerEyeHeight  = 1.55
@@ -53,6 +51,7 @@ type Game struct {
 	arenas   []arenaDefinition
 
 	playerRoot    *core.Node
+	playerWeapons [weaponCount]*core.Node
 	arenaRoot     core.INode
 	phase         gamePhase
 	sessionMode   sessionMode
@@ -77,6 +76,9 @@ type Game struct {
 
 	fireQueued      bool
 	fireCooldown    time.Duration
+	activeWeapon    weaponID
+	weapons         [weaponCount]weaponState
+	weaponPickups   []*weaponPickup
 	matchTime       time.Duration
 	roundElapsed    time.Duration
 	frags           int
@@ -221,9 +223,11 @@ func (g *Game) update(delta time.Duration) {
 				g.fireCooldown = 0
 			}
 		}
+		g.updateWeaponReload(gameDelta)
 
 		g.updatePlayer(float32(gameDelta.Seconds()))
 		g.updateCombatants(gameDelta)
+		g.updateWeaponPickups(gameDelta)
 		if g.roundElapsed >= g.matchConfig.RoundDuration {
 			g.endMatch()
 		}
@@ -535,7 +539,7 @@ func (g *Game) updateCamera() {
 	camPos, cameraDistance := g.resolveCameraPosition(headPos, desiredCamPos)
 
 	aimPoint := camPos
-	aimPoint.Add(viewDir.Clone().MultiplyScalar(weaponRange))
+	aimPoint.Add(viewDir.Clone().MultiplyScalar(g.activeWeaponSpec().rangeMeters))
 
 	g.camera.SetPosition(camPos.X, camPos.Y, camPos.Z)
 	g.camera.LookAt(&aimPoint, &math32.Vector3{Y: 1})
@@ -586,13 +590,80 @@ func (g *Game) fireWeapon() {
 		return
 	}
 
-	g.fireCooldown = 120 * time.Millisecond
+	spec := g.activeWeaponSpec()
+	state := &g.weapons[spec.id]
+	if !state.unlocked {
+		g.setStatus(fmt.Sprintf("Find the %s pickup first", spec.name), 900*time.Millisecond)
+		return
+	}
+	if state.reloadRemaining > 0 {
+		g.setStatus(fmt.Sprintf("Reloading %s", spec.name), 500*time.Millisecond)
+		return
+	}
+	if state.ammoInMagazine <= 0 {
+		if state.reserveAmmo > 0 {
+			g.startReloadActiveWeapon()
+			return
+		}
+		g.setStatus(fmt.Sprintf("%s is empty", spec.name), 800*time.Millisecond)
+		return
+	}
+
+	state.ammoInMagazine--
+	g.fireCooldown = spec.cooldown
 	g.shotsFired++
 
-	cameraOrigin := g.camera.Position()
+	report := weaponShotReport{}
+	pellets := spec.pellets
+	if pellets <= 0 {
+		pellets = 1
+	}
+	for pellet := 0; pellet < pellets; pellet++ {
+		g.fireWeaponRay(spec, g.weaponShotDirection(pellet, pellets, spec.spreadRadians), &report)
+	}
+	if report.targetHits > 0 {
+		g.shotsHit++
+	}
+	g.setShotStatus(spec, report)
+}
+
+type weaponShotReport struct {
+	anyHit         bool
+	targetHits     int
+	fraggedName    string
+	lastTargetName string
+	lastTargetHP   int
+	blockerName    string
+}
+
+func (g *Game) weaponShotDirection(pellet, pellets int, spread float32) *math32.Vector3 {
+
 	cameraDir := g.viewDirection()
+	if pellets <= 1 || spread <= 0 {
+		return cameraDir
+	}
+
+	if pellet == 0 {
+		return cameraDir
+	}
+
+	right := math32.Vector3{X: math32.Cos(g.yaw), Y: 0, Z: math32.Sin(g.yaw)}
+	up := right
+	up.Cross(cameraDir).Normalize()
+	angle := float32(pellet-1) / float32(pellets-1) * math32.Pi * 2
+	offset := right.MultiplyScalar(math32.Cos(angle) * spread)
+	offset.Add(up.MultiplyScalar(math32.Sin(angle) * spread))
+
+	cameraDir.Add(offset)
+	cameraDir.Normalize()
+	return cameraDir
+}
+
+func (g *Game) fireWeaponRay(spec weaponSpec, cameraDir *math32.Vector3, report *weaponShotReport) {
+
+	cameraOrigin := g.camera.Position()
 	muzzleOrigin := g.playerMuzzlePosition()
-	cameraTraceStart, cameraTraceDistance := clipCameraTraceToMuzzlePlane(cameraOrigin, cameraDir, muzzleOrigin, weaponRange)
+	cameraTraceStart, cameraTraceDistance := clipCameraTraceToMuzzlePlane(cameraOrigin, cameraDir, muzzleOrigin, spec.rangeMeters)
 	aimPoint := cameraTraceStart
 	aimPoint.Add(cameraDir.Clone().MultiplyScalar(cameraTraceDistance))
 
@@ -608,7 +679,7 @@ func (g *Game) fireWeapon() {
 	muzzleDistance := muzzleDir.Length()
 	if muzzleDistance <= 0.001 {
 		muzzleDir = cameraDir.Clone()
-		muzzleDistance = weaponRange
+		muzzleDistance = spec.rangeMeters
 	} else {
 		muzzleDir.Normalize()
 	}
@@ -618,26 +689,46 @@ func (g *Game) fireWeapon() {
 		missEnd := muzzleOrigin
 		missEnd.Add(muzzleDir.Clone().MultiplyScalar(muzzleDistance))
 		g.showTrace(g.muzzleTrace, muzzleOrigin, missEnd)
-		g.hideImpact()
-		g.setStatus("Shot wide", 400*time.Millisecond)
 		return
 	}
+	report.anyHit = true
 	g.showTrace(g.muzzleTrace, muzzleOrigin, shotHit.point)
 	g.showImpact(shotHit.point)
 
 	if shotHit.target == nil {
-		g.setStatus(fmt.Sprintf("Shot blocked by %s", shotHit.blockerName()), 700*time.Millisecond)
+		report.blockerName = shotHit.blockerName()
 		return
 	}
 
-	g.shotsHit++
-	if shotHit.target.applyDamage(weaponDamage) {
+	report.targetHits++
+	report.lastTargetName = shotHit.target.name
+	if shotHit.target.applyDamage(spec.damage) {
 		g.frags++
-		g.setStatus(fmt.Sprintf("Fragged %s", shotHit.target.name), 1400*time.Millisecond)
+		report.fraggedName = shotHit.target.name
 		return
 	}
 
-	g.setStatus(fmt.Sprintf("Tagged %s (%d hp)", shotHit.target.name, shotHit.target.health), 700*time.Millisecond)
+	report.lastTargetHP = shotHit.target.health
+}
+
+func (g *Game) setShotStatus(spec weaponSpec, report weaponShotReport) {
+
+	if report.fraggedName != "" {
+		g.setStatus(fmt.Sprintf("Fragged %s with %s", report.fraggedName, spec.name), 1400*time.Millisecond)
+		return
+	}
+	if report.targetHits > 0 {
+		g.setStatus(fmt.Sprintf("Tagged %s with %s (%d hp)", report.lastTargetName, spec.name, report.lastTargetHP), 800*time.Millisecond)
+		return
+	}
+	if report.blockerName != "" {
+		g.setStatus(fmt.Sprintf("%s bounced off %s", spec.shortName, report.blockerName), 700*time.Millisecond)
+		return
+	}
+	if !report.anyHit {
+		g.hideImpact()
+	}
+	g.setStatus(fmt.Sprintf("%s went wide", spec.shortName), 450*time.Millisecond)
 }
 
 func (g *Game) playerHeadPosition() math32.Vector3 {
@@ -754,10 +845,16 @@ func (g *Game) onKeyDown(_ string, ev interface{}) {
 			g.setStatus("Mouse capture enabled", 900*time.Millisecond)
 		}
 	case window.KeyR:
+		g.startReloadActiveWeapon()
+	case window.KeyF3:
 		g.resetPlayer()
 		g.setStatus("Player reset", time.Second)
 	case window.KeyF2:
 		g.returnToMenu("Match abandoned")
+	default:
+		if id, ok := weaponIDForKey(key.Key); ok {
+			g.switchWeapon(id)
+		}
 	}
 }
 

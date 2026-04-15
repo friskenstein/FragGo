@@ -15,7 +15,7 @@ func (g *Game) buildHUD() {
 	g.infoLabel.SetColor(&math32.Color{R: 0.95, G: 0.97, B: 1.0})
 	g.scene.Add(g.infoLabel)
 
-	g.controlsLabel = gui.NewLabel("WASD move  Space jump  Shift boost  LMB fire  Esc release mouse  R reset")
+	g.controlsLabel = gui.NewLabel("WASD move  Space jump  Shift boost  LMB fire  R reload  1/2/3 weapons  Esc release mouse")
 	g.controlsLabel.SetFontSize(14)
 	g.controlsLabel.SetColor(&math32.Color{R: 0.73, G: 0.79, B: 0.88})
 	g.scene.Add(g.controlsLabel)
@@ -105,7 +105,7 @@ func (g *Game) refreshHUD() {
 		}
 
 		g.infoLabel.SetText(fmt.Sprintf(
-			"Hosted Match\nTime Left: %s  Speed: %.2fx  Seats: %d\nFrags: %d  Accuracy: %.0f%%  Velocity: %.1f  Height: %s",
+			"Hosted Match\nTime Left: %s  Speed: %.2fx  Seats: %d\nFrags: %d  Accuracy: %.0f%%  Velocity: %.1f  Height: %s\n%s",
 			formatClock(timeLeft),
 			g.currentSpeedMultiplier(),
 			g.matchConfig.PlayerSlots,
@@ -113,8 +113,9 @@ func (g *Game) refreshHUD() {
 			accuracy,
 			g.playerVelocity.Length(),
 			height,
+			g.weaponHUDLine(),
 		))
-		g.controlsLabel.SetText("WASD move  Space jump  Shift boost  LMB fire  Esc release mouse  F2 lobby  R reset")
+		g.controlsLabel.SetText("WASD move  Space jump  Shift boost  LMB fire  R reload  1/2/3 weapons  F2 lobby  F3 reset")
 	}
 
 	if g.statusText == "" {
