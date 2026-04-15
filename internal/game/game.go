@@ -44,8 +44,10 @@ type Game struct {
 	keys     *window.KeyState
 	scene    *core.Node
 	camera   *camera.Camera
+	arenas   []arenaDefinition
 
 	playerRoot    *core.Node
+	arenaRoot     core.INode
 	phase         gamePhase
 	sessionMode   sessionMode
 	matchConfig   matchConfig
@@ -121,6 +123,13 @@ func New() (*Game, error) {
 		scene:    core.NewNode(),
 		camera:   camera.NewPerspective(float32(windowWidth)/float32(windowHeight), 0.1, 300, 78, camera.Vertical),
 	}
+
+	arenas, err := loadArenaDefinitions()
+	if err != nil {
+		win.Destroy()
+		return nil, err
+	}
+	g.arenas = arenas
 
 	g.yaw = 0
 	g.configureMenuDefaults()

@@ -31,6 +31,7 @@ type matchConfig struct {
 	EndSpeed      float32
 	PlayerSlots   int
 	FillBots      bool
+	ArenaID       string
 }
 
 type combatant struct {
@@ -61,7 +62,7 @@ var defaultCombatantSpawnPoints = []math32.Vector3{
 	{X: -18, Y: 0, Z: 34},
 }
 
-func defaultMatchConfig() matchConfig {
+func defaultMatchConfig(defaultArena string) matchConfig {
 
 	return matchConfig{
 		RoundDuration: 5 * time.Minute,
@@ -69,6 +70,7 @@ func defaultMatchConfig() matchConfig {
 		EndSpeed:      1.8,
 		PlayerSlots:   6,
 		FillBots:      true,
+		ArenaID:       defaultArena,
 	}
 }
 
@@ -102,7 +104,7 @@ func (g *Game) configureMenuDefaults() {
 
 	g.phase = phaseMenu
 	g.sessionMode = sessionModeHost
-	g.matchConfig = defaultMatchConfig()
+	g.matchConfig = defaultMatchConfig(defaultArenaID(g.arenas))
 	g.menuSelection = 0
 }
 

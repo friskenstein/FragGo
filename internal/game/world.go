@@ -38,15 +38,9 @@ func (g *Game) buildWorld() error {
 	fillLight.SetPosition(-6, 7, -4)
 	g.scene.Add(fillLight)
 
-	arenaRoot, bounds, collision, err := loadArena()
-	if err != nil {
+	if err := g.reloadArena(); err != nil {
 		return err
 	}
-
-	g.scene.Add(arenaRoot)
-	g.arenaCollision = collision
-	g.worldBounds = bounds
-	g.configureArenaSpawns()
 
 	if err := g.buildPlayerModel(); err != nil {
 		return err
@@ -54,9 +48,34 @@ func (g *Game) buildWorld() error {
 	return nil
 }
 
-func loadArena() (core.INode, math32.Box3, *meshCollision, error) {
+func (g *Game) reloadArena() error {
 
-	arenaAssetPath, err := arenaModelPath()
+	arena, ok := g.selectedArena()
+	if !ok {
+		return fmt.Errorf("selected arena %q is unavailable", g.matchConfig.ArenaID)
+	}
+
+	arenaRoot, bounds, collision, err := loadArena(arena)
+	if err != nil {
+		return err
+	}
+
+	if g.arenaRoot != nil {
+		g.scene.Remove(g.arenaRoot)
+	}
+
+	g.scene.Add(arenaRoot)
+	g.arenaRoot = arenaRoot
+	g.arenaCollision = collision
+	g.worldBounds = bounds
+	g.configureArenaSpawns()
+	g.resetPlayer()
+	return nil
+}
+
+func loadArena(arena arenaDefinition) (core.INode, math32.Box3, *meshCollision, error) {
+
+	arenaAssetPath, err := arenaModelPath(arena)
 	if err != nil {
 		return nil, math32.Box3{}, nil, err
 	}
@@ -77,7 +96,7 @@ func loadArena() (core.INode, math32.Box3, *meshCollision, error) {
 	}
 
 	arenaRoot.SetName("arena")
-	arenaRoot.GetNode().SetScale(arenaModelScale, arenaModelScale, arenaModelScale)
+	arenaRoot.GetNode().SetScale(arena.Scale*arenaModelScale, arena.Scale*arenaModelScale, arena.Scale*arenaModelScale)
 	arenaRoot.UpdateMatrixWorld()
 
 	bounds := arenaRoot.BoundingBox()
@@ -270,9 +289,9 @@ func playerModelPath() (string, error) {
 	return assetPath("gopher", "gopher.obj")
 }
 
-func arenaModelPath() (string, error) {
+func arenaModelPath(arena arenaDefinition) (string, error) {
 
-	return assetPath("dust2.glb")
+	return assetPath("levels", arena.AssetName)
 }
 
 func fragGoLogoPath() (string, error) {

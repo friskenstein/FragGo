@@ -11,6 +11,7 @@ import (
 
 const (
 	menuItemMode = iota
+	menuItemArena
 	menuItemRoundTime
 	menuItemSpeedStart
 	menuItemSpeedEnd
@@ -58,6 +59,12 @@ func (g *Game) adjustMenuSetting(direction int) {
 				g.sessionMode = sessionModeJoin
 			} else {
 				g.sessionMode = sessionModeHost
+			}
+		}
+	case menuItemArena:
+		if direction != 0 {
+			if err := g.stepArenaSelection(direction); err != nil {
+				g.setStatus(fmt.Sprintf("Failed to load map: %v", err), 2*time.Second)
 			}
 		}
 	case menuItemRoundTime:
@@ -131,6 +138,7 @@ func (g *Game) menuBody() string {
 
 	rows := []string{
 		g.formatMenuRow(menuItemMode, "Session", mode),
+		g.formatMenuRow(menuItemArena, "Map", g.menuArenaLabel()),
 		g.formatMenuRow(menuItemRoundTime, "Round Time", fmt.Sprintf("%dm", int(g.matchConfig.RoundDuration.Minutes()))),
 		g.formatMenuRow(menuItemSpeedStart, "Start Speed", fmt.Sprintf("%.2fx", g.matchConfig.StartSpeed)),
 		g.formatMenuRow(menuItemSpeedEnd, "End Speed", fmt.Sprintf("%.2fx", g.matchConfig.EndSpeed)),
@@ -194,4 +202,37 @@ func onOffLabel(enabled bool) string {
 		return "On"
 	}
 	return "Off"
+}
+
+func (g *Game) menuArenaLabel() string {
+
+	arena, ok := g.selectedArena()
+	if !ok {
+		return "Unavailable"
+	}
+	return fmt.Sprintf("%s (%.2fx)", arena.Label, arena.Scale)
+}
+
+func (g *Game) stepArenaSelection(direction int) error {
+
+	if len(g.arenas) == 0 || direction == 0 {
+		return nil
+	}
+
+	currentIndex := g.selectedArenaIndex()
+	nextIndex := (currentIndex + direction + len(g.arenas)) % len(g.arenas)
+	nextArena := g.arenas[nextIndex]
+	if nextArena.ID == g.matchConfig.ArenaID {
+		return nil
+	}
+
+	previousArenaID := g.matchConfig.ArenaID
+	g.matchConfig.ArenaID = nextArena.ID
+	if err := g.reloadArena(); err != nil {
+		g.matchConfig.ArenaID = previousArenaID
+		return err
+	}
+
+	g.setStatus(fmt.Sprintf("Selected map: %s", nextArena.Label), 1200*time.Millisecond)
+	return nil
 }
